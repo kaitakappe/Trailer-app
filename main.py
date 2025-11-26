@@ -488,17 +488,20 @@ class CarCalcPanel(wx.Panel):
 			c = _pdf_canvas.Canvas(path, pagesize=_A4)
 			w, h = _A4
 			font = 'Helvetica'
-			for f in ['ipaexg.ttf','ipaexm.ttf','fonts/ipaexg.ttf','fonts/ipaexm.ttf']:
+			for f in ['ipaexg.ttf', 'ipaexm.ttf', 'fonts/ipaexg.ttf', 'fonts/ipaexm.ttf']:
 				if os.path.exists(f):
 					try:
-						_pdfmetrics.registerFont(_TTFont('JPFontCM', f)); font='JPFontCM'; break
-					except Exception: pass
+						_pdfmetrics.registerFont(_TTFont('JPFontCM', f))
+						font = 'JPFontCM'
+						break
+					except Exception:
+						pass
 			v = self.last_values
 			# タイトル
 			c.setFont(font, 14)
-			c.drawString(40, h-50, '改造自動車審査計算書')
+			c.drawString(40, h - 50, '改造自動車審査計算書')
 			c.setFont(font, 10)
-			start_y = h-85
+			start_y = h - 85
 			# 入力諸元表
 			col_w = [120, 120, 120, 120]
 			rows = [
@@ -509,19 +512,24 @@ class CarCalcPanel(wx.Panel):
 				['車種区分', '乗用車' if v['passenger'] else 'トラック・バス', '制動係数 k', f"{v['coeff']:.2f}"],
 			]
 			def table(x, y, cw, rh, data):
-				total = sum(cw); rows_n = len(data)
-				c.rect(x, y-rows_n*rh, total, rows_n*rh)
+				total = sum(cw)
+				rows_n = len(data)
+				c.rect(x, y - rows_n * rh, total, rows_n * rh)
 				cx = x
 				for wcol in cw[:-1]:
-					cx += wcol; c.line(cx, y, cx, y-rows_n*rh)
+					cx += wcol
+					c.line(cx, y, cx, y - rows_n * rh)
 				ry = y
-				for _ in range(rows_n-1):
-					ry -= rh; c.line(x, ry, x+total, ry)
+				for _ in range(rows_n - 1):
+					ry -= rh
+					c.line(x, ry, x + total, ry)
 				for r, row in enumerate(data):
-					cy = y-(r+1)*rh+4; cx = x+3
+					cy = y - (r + 1) * rh + 4
+					cx = x + 3
 					for i, val in enumerate(row):
-						c.drawString(cx, cy, str(val)); cx += cw[i]
-				return y-rows_n*rh-20
+						c.drawString(cx, cy, str(val))
+						cx += cw[i]
+				return y - rows_n * rh - 20
 			next_y = table(40, start_y, col_w, 18, rows)
 			# 結果サマリ
 			results = [
@@ -534,21 +542,24 @@ class CarCalcPanel(wx.Panel):
 			y = next_y
 			c.drawString(40, y, '(1) 必要制動力 F の計算')
 			c.setFont(font, 9)
-			c.drawString(55, y-14, 'F = k × (W + Wf) × 9.8')
-			c.drawString(55, y-28, f"  = {v['coeff']:.2f} × ({v['W']:.1f} + {v['Wf']:.1f}) × 9.8 = {v['F']:.1f} N")
+			c.drawString(55, y - 14, 'F = k × (W + Wf) × 9.8')
+			c.drawString(55, y - 28, f"  = {v['coeff']:.2f} × ({v['W']:.1f} + {v['Wf']:.1f}) × 9.8 = {v['F']:.1f} N")
 			c.setFont(font, 11)
 			y -= 56
 			c.drawString(40, y, '(2) 安全率の計算')
 			c.setFont(font, 9)
-			c.drawString(55, y-14, '安全率 = 許容応力 / 実応力')
-			c.drawString(55, y-28, f"       = {v['allowable']:.2f} / {v['stress']:.2f} = {v['ratio']:.2f}")
+			c.drawString(55, y - 14, '安全率 = 許容応力 / 実応力')
+			c.drawString(55, y - 28, f"       = {v['allowable']:.2f} / {v['stress']:.2f} = {v['ratio']:.2f}")
 			c.setFont(font, 11)
 			y -= 56
 			c.drawString(40, y, '(3) 最大安定傾斜角度 θ の計算')
 			c.setFont(font, 9)
-			c.drawString(55, y-14, 'tan θ = (T/2) / H  →  θ = arctan((T/2)/H)')
-			c.drawString(55, y-28, f"       = arctan(({v['tw']:.3f}/2)/{v['cg']:.3f}) = {v['angle']:.2f}°")
-			c.showPage(); c.save(); _open_saved_pdf(path); wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+			c.drawString(55, y - 14, 'tan θ = (T/2) / H  →  θ = arctan((T/2)/H)')
+			c.drawString(55, y - 28, f"       = arctan(({v['tw']:.3f}/2)/{v['cg']:.3f}) = {v['angle']:.2f}°")
+			c.showPage()
+			c.save()
+			_open_saved_pdf(path)
+			wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力中エラー: {e}', 'エラー', wx.ICON_ERROR)
 
@@ -982,12 +993,10 @@ class TurningRadiusPanel(wx.Panel):
 		super().__init__(parent)
 		v=wx.BoxSizer(wx.VERTICAL)
 		# 図表示: 最小回転半径レイアウト図 (存在すれば表示)
-		img_candidates = [
-			'turning_full.png','turning_semi.png','turning_radius.png',
-			'turning_diagram.png','turning.png','turning_layout.png'
-		]
+		img_candidates = ['turning_full.png','turning_semi.png','turning_radius.png','turning_diagram.png','turning.png','turning_layout.png']
 		# 単一ファイル(二図並列)を優先: turning_diagram.png など
 		side_by_side = ['turning_diagram.png','turning_radius.png','turning.png']
+		bitmap_added = False
 		bitmap_added = False
 		for p in side_by_side:
 			if os.path.exists(p):
@@ -1024,12 +1033,52 @@ class TurningRadiusPanel(wx.Panel):
 					bitmap_added = True
 		if not bitmap_added:
 			v.Add(wx.StaticText(self,label='(回転半径図ファイル未検出: turning_diagram.png)'),0,wx.ALIGN_CENTER|wx.ALL,4)
-		self.L1=self._add(v,'車軸距 L1 [mm]','3500')
-		self.L2=self._add(v,'車軸距 L2 [mm]','8000')
-		self.trf1=self._add(v,'前輪トレッド Trf1 [mm]','1500')
-		self.trf2=self._add(v,'後輪トレッド Trf2 [mm]','1800')
-		self.S=self._add(v,'カプラオフセット S [mm]','400')
-		self.theta=self._add(v,'ハンドル切れ角 θ [deg]','35')
+		# 入力を見本の書式に合わせて整理（(1)トラクタ諸元 / (2)トレーラ諸元）
+		tractor_box = wx.StaticBox(self, label='(1) トラクタ諸元')
+		tractor_s = wx.StaticBoxSizer(tractor_box, wx.VERTICAL)
+		self.L1 = self._add(tractor_s, '軸距 L1 [m]', '3.450')
+		self.i1_input = self._add(tractor_s, '前輪給距の 1/2 値 I1 [m]', '1.030')
+		# 派生値 I1 (Trf1/2) を表示用に追加（読み取り専用, m単位）
+		row1 = wx.BoxSizer(wx.HORIZONTAL)
+		row1.Add(wx.StaticText(self, label='前輪給距の 1/2 値 I1 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
+		self.i1_disp = wx.TextCtrl(self, value='1.030', style=wx.TE_RIGHT | wx.TE_READONLY)
+		row1.Add(self.i1_disp, 0)
+		tractor_s.Add(row1, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+		trailer_box = wx.StaticBox(self, label='(2) トレーラ諸元')
+		trailer_s = wx.StaticBoxSizer(trailer_box, wx.VERTICAL)
+		self.L2 = self._add(trailer_s, '軸距 L2 [m]', '8.870')
+		self.i2_input = self._add(trailer_s, '後輪給距の 1/2 値 I2 [m]', '0.930')
+		# 派生値 I2 (Trf2/2) を表示用に追加（読み取り専用, m単位）
+		row2 = wx.BoxSizer(wx.HORIZONTAL)
+		row2.Add(wx.StaticText(self, label='後輪給距の 1/2 値 I2 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
+		self.i2_disp = wx.TextCtrl(self, value='0.930', style=wx.TE_RIGHT | wx.TE_READONLY)
+		row2.Add(self.i2_disp, 0)
+		trailer_s.Add(row2, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+		# 共通: カプラオフセット S と ハンドル切れ角 θ
+		self.S = self._add(v, 'カプラオフセット S [m]', '0.650')
+		# 文書書式ではθは使用しないため入力から除外
+		# 補足ラベル
+		v.Add(wx.StaticText(self, label='補足: I1=Trf1/2, I2=Trf2/2'), 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
+
+		# グループをレイアウトへ追加
+		v.Add(tractor_s, 0, wx.EXPAND | wx.ALL, 6)
+		v.Add(trailer_s, 0, wx.EXPAND | wx.ALL, 6)
+
+		# 入力変更時に派生値(I1/I2)を更新
+		def _update_derived(_evt=None):
+			try:
+				i1_m = float(self.i1_input.GetValue())
+				i2_m = float(self.i2_input.GetValue())
+				self.i1_disp.SetValue(f"{i1_m:.3f}")
+				self.i2_disp.SetValue(f"{i2_m:.3f}")
+			except ValueError:
+				self.i1_disp.SetValue('')
+				self.i2_disp.SetValue('')
+		self.i1_input.Bind(wx.EVT_TEXT, _update_derived)
+		self.i2_input.Bind(wx.EVT_TEXT, _update_derived)
+		_update_derived()
 		btn_row=wx.BoxSizer(wx.HORIZONTAL)
 		btn_calc=wx.Button(self,label='回転半径計算'); btn_calc.Bind(wx.EVT_BUTTON,self.on_calc); btn_row.Add(btn_calc,0,wx.RIGHT,8)
 		btn_pdf=wx.Button(self,label='PDF出力'); btn_pdf.Bind(wx.EVT_BUTTON,self.on_export_pdf); btn_row.Add(btn_pdf,0)
@@ -1046,42 +1095,26 @@ class TurningRadiusPanel(wx.Panel):
 		return t
 
 	def on_calc(self,_):
-		"""新書式に合わせた最小回転半径計算。
-		式:
-		  LC = (L1 - S)/tanθ - Trf1/2
-		  θ2 = atan(Trf2 / (2 L2))
-		  L3 = √( L2² + (Trf2/2)² )
-		  DL = (LC - L3) × cosθ2
-		  R  = √( L1² + (LC + Trf1/2)² )
-		全て長さは m 単位で計算 (入力 mm → m へ変換)。
+		"""見本書式に合わせた最小回転半径計算。
+		使用入力: L1, L2, I1, I2, S (すべて m)
+		計算式:
+		  LC = √(L2² + I2² − S²)
+		  R  = √(L1² + (LC + I1)²)
 		"""
 		try:
-			L1_mm=float(self.L1.GetValue()); L2_mm=float(self.L2.GetValue()); Trf1_mm=float(self.trf1.GetValue()); Trf2_mm=float(self.trf2.GetValue()); S_mm=float(self.S.GetValue()); theta_deg=float(self.theta.GetValue())
+			L1=float(self.L1.GetValue()); L2=float(self.L2.GetValue()); I1=float(self.i1_input.GetValue()); I2=float(self.i2_input.GetValue()); S=float(self.S.GetValue())
 		except ValueError:
 			wx.MessageBox('数値入力を確認してください。','入力エラー',wx.ICON_ERROR); return
 		import math
-		if abs(theta_deg) < 1e-6:
-			wx.MessageBox('θ=0° では tanθ が定義できません。1°以上を入力してください。','入力エラー',wx.ICON_ERROR); return
-		theta_rad = math.radians(theta_deg)
-		# mm→m 変換
-		L1=L1_mm/1000.0; L2=L2_mm/1000.0; Trf1=Trf1_mm/1000.0; Trf2=Trf2_mm/1000.0; S=S_mm/1000.0
-		# 計算
-		try:
-			LC = (L1 - S)/math.tan(theta_rad) - Trf1/2.0
-		except ZeroDivisionError:
-			wx.MessageBox('tanθ が 0 に近く計算不能です。角度を調整してください。','入力エラー',wx.ICON_ERROR); return
-		theta2_rad = math.atan(Trf2/(2.0*L2))
-		theta2_deg = math.degrees(theta2_rad)
-		L3 = math.sqrt(L2**2 + (Trf2/2.0)**2)
-		DL = (LC - L3) * math.cos(theta2_rad)
-		R = math.sqrt(L1**2 + (LC + Trf1/2.0)**2)
-		self.last_values = dict(L1=L1,L2=L2,Trf1=Trf1,Trf2=Trf2,S=S,theta_deg=theta_deg,LC=LC,theta2_deg=theta2_deg,L3=L3,DL=DL,R=R)
+		lc_sq = L2**2 + I2**2 - S**2
+		if lc_sq < 0:
+			wx.MessageBox('LC計算の平方根内が負です。Sが大き過ぎる可能性があります。','入力エラー',wx.ICON_ERROR); return
+		LC = math.sqrt(lc_sq)
+		R = math.sqrt(L1**2 + (LC + I1)**2)
+		self.last_values = dict(L1=L1,L2=L2,I1=I1,I2=I2,S=S,LC=LC,R=R)
 		text='\n'.join([
-			'◆ 最小回転半径 新書式 ◆',
+			'◆ 最小回転半径 計算結果 ◆',
 			f"LC = {LC:.3f} m",
-			f"θ2 = {theta2_deg:.3f} °",
-			f"L3 = {L3:.3f} m",
-			f"DL = {DL:.3f} m",
 			f"R  = {R:.3f} m"
 		])
 		show_result('最小回転半径計算結果', text)
@@ -1096,94 +1129,103 @@ class TurningRadiusPanel(wx.Panel):
 			path=dlg.GetPath()
 		vals=self.last_values
 		try:
+			# 見本書式: 図→(1)トラクタ諸元(m)→(2)トレーラ諸元(m)→(3)式展開
 			c=_pdf_canvas.Canvas(path,pagesize=_A4)
 			W,H=_A4
 			font='Helvetica'
 			for f in ['ipaexg.ttf','ipaexm.ttf','fonts/ipaexg.ttf','fonts/ipaexm.ttf']:
 				if os.path.exists(f):
 					try:
-						_pdfmetrics.registerFont(_TTFont('JPFontTRnew',f)); font='JPFontTRnew'; break
+						_pdfmetrics.registerFont(_TTFont('JPFontTR',f)); font='JPFontTR'; break
 					except Exception: pass
-			# タイトル
-			c.setFont(font,15)
-			c.drawString(40,H-50,'連結自動車の最小回転半径計算書')
-			# 上部レイアウト: 左図領域 + 右諸元表
-			img_y = H-90
-			img_box_h = 300
-			img_box_w = 520
-			# 図挿入 (存在すれば複数)
-			img_files = [f for f in ['turning_full.png','turning_semi.png','turning_radius.png'] if os.path.exists(f)]
-			if img_files:
-				# 横並び配置
-				available_w = img_box_w - 20
-				per_w = available_w/len(img_files)
-				x_pos = 40
-				for pf in img_files:
-					try:
-						img = wx.Image(pf, wx.BITMAP_TYPE_ANY)
-						scale = min(per_w/img.GetWidth(), img_box_h/img.GetHeight())
-						img = img.Scale(int(img.GetWidth()*scale), int(img.GetHeight()*scale))
-						from reportlab.platypus import Image as RLImage
-						# 直接描画: 一旦PNGをそのまま drawImage
-						c.drawImage(pf, x_pos, img_y-img_box_h+10, width=img.GetWidth(), height=img.GetHeight(), preserveAspectRatio=True, mask='auto')
-						x_pos += per_w
-					except Exception:
-						pass
-			# 諸元表描画関数
-			c.setFont(font,9)
-			def draw_spec_table(x,y,title,rows,colw):
-				row_h=16
-				height=row_h*(len(rows)+1)
+			# 画像: 添付見本に合わせて turning.png を優先表示
+			top_y=H-70
+			pf=None
+			if os.path.exists('turning.png'):
+				pf='turning.png'
+			else:
+				alts=['turning_diagram.png','turning_radius.png','turning_full.png','turning_semi.png']
+				for p in alts:
+					if os.path.exists(p):
+						pf=p; break
+			if pf:
+				try:
+					img=wx.Image(pf,wx.BITMAP_TYPE_ANY)
+					max_w=520; max_h=220
+					sc=min(max_w/img.GetWidth(), max_h/img.GetHeight())
+					new_w=int(img.GetWidth()*sc); new_h=int(img.GetHeight()*sc)
+					# 図をさらに右へ配置
+					c.drawImage(pf,120,top_y-new_h+10,width=new_w,height=new_h,preserveAspectRatio=True,mask='auto')
+					top_y=top_y-new_h-6
+				except Exception: pass
+			# タイトル（左）/ ページ下部の中央ページ番号は省略
+			c.setFont(font,14); c.drawString(40,H-50,'連結自動車の最小回転半径計算書')
+			# 値は m 表示に統一（見本準拠）
+			L1=vals['L1']; L2=vals['L2']; I1=vals['I1']; I2=vals['I2']; S=vals['S']; LC=vals['LC']; R=vals['R']
+			# 諸元表関数（3列: 項目/値/単位）
+			c.setFont(font,10)
+			def table(x,y,title,rows,colw):
+				row_h=18
+				# ヘッダー行は設けず、行数分の枠に調整（例: 4行/2行）
+				height=row_h*len(rows)
 				width=sum(colw)
+				# タイトルは枠の外上部に配置して重なり防止
+				c.setFont(font,11); c.drawString(x+6,y+12,title); c.setFont(font,10)
+				# 外枠は太線で描画
+				c.setLineWidth(1.5)
 				c.rect(x,y-height,width,height)
-				c.setFont(font,10); c.drawString(x+4,y-14,title); c.setFont(font,9)
-				# header line
-				c.line(x,y-row_h,x+width,y-row_h)
-				# vertical lines
+				# 各行の水平線（内部仕切り）を追加（行数に応じた枠）
+				c.setLineWidth(0.8)
+				for i in range(1, len(rows)):
+					c.line(x, y - row_h*i, x + width, y - row_h*i)
 				cx=x
-				for wcol in colw[:-1]:
-					cx += wcol; c.line(cx,y,cx,y-height)
-				# rows
+				# 縦線（列区切り）。外枠に合わせるため線幅は内線と同じに。
+				for wcol in colw[:-1]: cx+=wcol; c.line(cx,y,cx,y-height)
 				for i,r in enumerate(rows):
-					cy=y-row_h*(i+1)+4
-					cx=x+3
-					for j,cell in enumerate(r):
-						c.drawString(cx,cy,str(cell)); cx += colw[j]
-				return y-height-10
-			# 右側テーブル
-			table_x = 40+img_box_w+20
-			top_y = H-90
-			tractor_rows = [
-				['L1', f"{vals['L1']:.3f}", 'm'],
-				['Trf1', f"{vals['Trf1']:.3f}", 'm'],
-				['θ', f"{vals['theta_deg']:.2f}", '°'],
-				['S', f"{vals['S']:.3f}", 'm'],
-			]
-			trailer_rows = [
-				['L2', f"{vals['L2']:.3f}", 'm'],
-				['Trf2', f"{vals['Trf2']:.3f}", 'm'],
-			]
-			colw=[50,60,30]
-			after_tractor = draw_spec_table(table_x, top_y, 'けん引車(トラクタ) 諸元', tractor_rows, colw)
-			after_trailer = draw_spec_table(table_x, after_tractor, '被けん引車(トレーラ) 諸元', trailer_rows, colw)
-			# 式展開
-			y = after_trailer - 10
-			c.setFont(font,11)
-			c.drawString(40,y,'計算式展開')
-			c.setFont(font,9)
-			y -= 18
-			c.drawString(50,y, f"LC = (L1 - S)/tanθ - Trf1/2 = ({vals['L1']:.3f} - {vals['S']:.3f})/tan({vals['theta_deg']:.2f}°) - {vals['Trf1']:.3f}/2 = {vals['LC']:.3f} m")
-			y -= 14
-			c.drawString(50,y, f"θ2 = atan(Trf2 / (2 L2)) = atan({vals['Trf2']:.3f} / (2×{vals['L2']:.3f})) = {vals['theta2_deg']:.3f} °")
-			y -= 14
-			c.drawString(50,y, f"L3 = √( L2² + (Trf2/2)² ) = √( {vals['L2']:.3f}² + ({vals['Trf2']:.3f}/2)² ) = {vals['L3']:.3f} m")
-			y -= 14
-			c.drawString(50,y, f"DL = (LC - L3) × cosθ2 = ({vals['LC']:.3f} - {vals['L3']:.3f})×cos({vals['theta2_deg']:.3f}°) = {vals['DL']:.3f} m")
-			y -= 14
-			c.drawString(50,y, f"R = √( L1² + (LC + Trf1/2)² ) = √( {vals['L1']:.3f}² + ({vals['LC']:.3f} + {vals['Trf1']:.3f}/2)² ) = {vals['R']:.3f} m")
-			c.setFont(font,11)
-			y -= 20
-			c.drawString(50,y, f"最小回転半径 R = {vals['R']:.3f} m")
+					cy=y-row_h*(i+1)+5; cx=x+6
+					for j,cell in enumerate(r): c.drawString(cx,cy,str(cell)); cx+=colw[j]
+				# 下の余白は最小限
+				return y-height-6
+			# 列幅（合計幅を用紙右マージン内に収める）
+			colw=[120,90,50]
+			# 図との間隔を広げるため、諸元表の開始位置を下げる
+			top_y=min(top_y, H-300) - 12
+			# 左表は左マージン 40pt に配置
+			left_x=40
+			left_bottom=table(left_x,top_y,'(1) トラクタ諸元',[
+				['最小回転半径 R', f"{R:.3f}", 'm'],
+				['軸距 L1', f"{L1:.3f}", 'm'],
+				['前輪給距の 1/2 値 I1', f"{I1:.3f}", 'm'],
+				['カプラオフセット S', f"{S:.3f}", 'm'],
+			], colw)
+			# 右表は用紙幅から右マージン40ptと表幅を差し引いた位置に配置（はみ出し防止）
+			width=sum(colw)
+			right_x = W - 40 - width
+			# 左右の表が近すぎる場合は少し余白を追加
+			if right_x - (left_x + width) < 20:
+				right_x = left_x + width + 20
+			right_bottom=table(right_x,top_y,'(2) トレーラ諸元',[
+				['軸距 L2', f"{L2:.3f}", 'm'],
+				['後輪給距の 1/2 値 I2', f"{I2:.3f}", 'm'],
+			], colw)
+			# 式展開（さらに下げて図・諸元との余白を確保）
+			y=min(left_bottom,right_bottom)-30
+			# 下端マージンを確保（はみ出し防止）
+			if y < 140:
+				y = 140
+			c.setFont(font,11); c.drawString(40,y,'(3) 連結時最小回転半径 R (m)')
+			c.setFont(font,10); y-=18
+			# LC の式（見本準拠: LC = √(L2^2 + I2^2 - S^2)）
+			c.drawString(50,y,'LC = √( L2² + I2² - S² )'); y-=18
+			c.drawString(50,y,f"LC = √( {L2:.3f}² + {I2:.3f}² - {S:.3f}² ) = {LC:.3f}"); y-=22
+			# Li と DL の注記（見本の 0.3m を注記として表示）
+			c.drawString(50,y,'Li = L2 + DL'); c.drawString(180,y,'DL = 0.3m'); y-=18
+			c.drawString(50,y,f"Li = {L2:.3f} + 0.300 = {(L2+0.300):.3f}"); y-=22
+			# R の式
+			c.drawString(50,y,'R = √( L1² + (Lc + I1)² )'); y-=18
+			c.drawString(50,y,f"R = √( {L1:.3f}² + ({LC:.3f} + {I1:.3f})² ) = {R:.3f}"); y-=20
+			# 結果（見本の ≤ 判定行は省略）
+			c.setFont(font,11); c.drawString(40,y,f"R = {R:.3f} m")
 			c.showPage(); c.save(); _open_saved_pdf(path); wx.MessageBox('PDFを保存しました。','完了',wx.ICON_INFORMATION)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力中エラー: {e}','エラー',wx.ICON_ERROR)
