@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  syntax-check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Show Python version
+        run: python -V
+      - name: Syntax check (compileall)
+        run: |
+          python - <<'PY'
+          import compileall, sys
+          ok = compileall.compile_dir('.', maxlevels=10, quiet=1)
+          sys.exit(0 if ok else 1)
+          PY
