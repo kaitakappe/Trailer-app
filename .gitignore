@@ -24,10 +24,9 @@ dist/
 htmlcov/
 
 # IDE / editor
-.vscode/
 .idea/
-*.code-workspace
 
 # OS files
 .DS_Store
 Thumbs.db
+
