@@ -1,6 +1,7 @@
 import wx
 import os
 import tempfile
+from typing import cast
 try:
 	from reportlab.pdfgen import canvas as _pdf_canvas
 	from reportlab.lib.pagesizes import A4 as _A4
@@ -25,7 +26,7 @@ FRAME_GRAPH_WINDOW = None
 
 class ResultWindow(wx.Frame):
 	def __init__(self):
-		super().__init__(None, title='計算結果', size=(560, 620))
+		super().__init__(None, title='計算結果', size=wx.Size(560, 620))
 		self.txt = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_READONLY|wx.VSCROLL)
 		self.btn_copy = wx.Button(self, label='コピー')
 		self.btn_close = wx.Button(self, label='閉じる')
@@ -63,7 +64,7 @@ class ResultWindow(wx.Frame):
 class FrameGraphWindow(wx.Frame):
 	"""車枠強度 せん断力・曲げモーメント図専用ウィンドウ"""
 	def __init__(self):
-		super().__init__(None, title='車枠強度 図', size=(780, 520))
+		super().__init__(None, title='車枠強度 図', size=wx.Size(780, 520))
 		self.panel = wx.Panel(self)
 		self.panel.Bind(wx.EVT_PAINT, self._on_paint)
 		self.panel.Bind(wx.EVT_SIZE, lambda e: (e.Skip(), self.panel.Refresh()))
@@ -339,7 +340,6 @@ class WeightCalcPanel(wx.Panel):
 				"""罫線付きテーブル描画。data_rows: [ [cell,...], ... ]"""
 				# タイトル
 				if title:
-					W = float(self.W.GetValue())
 					c.drawString(x, y + 6, title)
 					y -= 14
 				cols = len(col_widths)
@@ -596,7 +596,7 @@ class TrailerSpecPanel(wx.Panel):
 
 	def _add(self, sizer, label, default=''):
 		sizer.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
-		t = wx.TextCtrl(self, value=default, size=(90, -1), style=wx.TE_RIGHT)
+		t = wx.TextCtrl(self, value=default, size=wx.Size(90, -1), style=wx.TE_RIGHT)
 		sizer.Add(t, 0, wx.EXPAND)
 		return t
 
@@ -710,7 +710,8 @@ class TrailerSpecPanel(wx.Panel):
 			# 計算式展開セクション
 			c.setFont(font, 11)
 			formula_y = y - 10
-			W = vals['W']; Wp = vals['Wp']; Fm = vals['Fm']; Fmp = vals['Fmp']; Fs = vals['Fs']; Fsp = vals['Fsp']; WD = vals['WD']; PS = vals['PS']
+			# 明示キャストで型警告抑止
+			W = cast(float, vals['W']); Wp = cast(float, vals['Wp']); Fm = cast(float, vals['Fm']); Fmp = cast(float, vals['Fmp']); Fs = cast(float, vals['Fs']); Fsp = cast(float, vals['Fsp']); WD = cast(float, vals['WD']); PS = cast(float, vals['PS'])
 			GCW = W + Wp
 			# 1) 停止距離 D 式
 			speed_kmh = 50.0; margin = 1.05; threshold = 25.0
@@ -778,7 +779,7 @@ class StabilityAnglePanel(wx.Panel):
 					enlarged_w = int(img.GetWidth() * enlarge)
 					enlarged_h = int(img.GetHeight() * enlarge)
 					img = img.Scale(enlarged_w, enlarged_h)
-					bmp = wx.StaticBitmap(self, -1, wx.Bitmap(img))
+					bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(img)))
 					v.Add(bmp, 0, wx.ALIGN_CENTER | wx.ALL, 6)
 					bitmap_added = True
 					break
@@ -819,13 +820,13 @@ class StabilityAnglePanel(wx.Panel):
 
 		for key, label in tractor_fields:
 			tractor_grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
-			t = wx.TextCtrl(self, value='0.0', size=(90, -1), style=wx.TE_RIGHT)
+			t = wx.TextCtrl(self, value='0.0', size=wx.Size(90, -1), style=wx.TE_RIGHT)
 			self.inputs[key] = t
 			tractor_grid.Add(t, 0, wx.EXPAND)
 
 		for key, label in trailer_fields:
 			trailer_grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
-			t = wx.TextCtrl(self, value='0.0', size=(90, -1), style=wx.TE_RIGHT)
+			t = wx.TextCtrl(self, value='0.0', size=wx.Size(90, -1), style=wx.TE_RIGHT)
 			self.inputs[key] = t
 			trailer_grid.Add(t, 0, wx.EXPAND)
 
@@ -862,7 +863,7 @@ class StabilityAnglePanel(wx.Panel):
 			wx.MessageBox('数値入力を確認してください。', '入力エラー', wx.ICON_ERROR); return
 		res = calculate_stability_angle(data)
 		if not res:
-			self.result.SetValue('計算失敗'); return
+			wx.MessageBox('計算失敗', 'エラー', wx.ICON_ERROR); return
 		self.last_inputs = data
 		self.last_res = res
 		text = '\n'.join([
@@ -943,15 +944,18 @@ class StabilityAnglePanel(wx.Panel):
 
 class ChassisFramePanel(wx.Panel):
 	def __init__(self,parent):
-		# 廃止: シャーシ強度計算パネルは利用されません (タブ未追加)
-		# 保持のみ。今後再利用時は復元してください。
+		# 廃止: シャーシ強度計算パネルは未使用。型解析エラー抑止用に最低限属性定義。
 		super().__init__(parent)
 		self.last=None
+		self.load_sizer = wx.FlexGridSizer(0,2,4,4)
+		self.point_load_ctrls = []
+		self.pos_ctrls = []
+		self.load_count = wx.SpinCtrl(self, min=0, max=10, initial=0)
 
 	def _row(self,sizer,label,default):
 		h = wx.BoxSizer(wx.HORIZONTAL)
 		h.Add(wx.StaticText(self,label=label),0,wx.RIGHT|wx.ALIGN_CENTER_VERTICAL,6)
-		ctrl = wx.TextCtrl(self,value=default,size=(90,-1),style=wx.TE_RIGHT)
+		ctrl = wx.TextCtrl(self,value=default,size=wx.Size(90,-1),style=wx.TE_RIGHT)
 		h.Add(ctrl,0)
 		sizer.Add(h,0,wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP,4)
 		return ctrl
@@ -964,9 +968,9 @@ class ChassisFramePanel(wx.Panel):
 		count = self.load_count.GetValue()
 		for i in range(count):
 			self.load_sizer.Add(wx.StaticText(self,label=f'荷重{i+1}(kg)'),0,wx.ALIGN_CENTER_VERTICAL)
-			pl = wx.TextCtrl(self,value='300',size=(70,-1),style=wx.TE_RIGHT); self.point_load_ctrls.append(pl); self.load_sizer.Add(pl,0)
+			pl = wx.TextCtrl(self,value='300',size=wx.Size(70,-1),style=wx.TE_RIGHT); self.point_load_ctrls.append(pl); self.load_sizer.Add(pl,0)
 			self.load_sizer.Add(wx.StaticText(self,label=f'位置{i+1}(mm)'),0,wx.ALIGN_CENTER_VERTICAL)
-			pos = wx.TextCtrl(self,value=str(1000*(i+1)),size=(70,-1),style=wx.TE_RIGHT); self.pos_ctrls.append(pos); self.load_sizer.Add(pos,0)
+			pos = wx.TextCtrl(self,value=str(1000*(i+1)),size=wx.Size(70,-1),style=wx.TE_RIGHT); self.pos_ctrls.append(pos); self.load_sizer.Add(pos,0)
 		self.Layout()
 
 	def on_calc(self,_): pass
@@ -993,7 +997,7 @@ class TurningRadiusPanel(wx.Panel):
 					if img.GetWidth() > max_w:
 						scale = max_w / img.GetWidth()
 						img = img.Scale(max_w, int(img.GetHeight()*scale))
-					bmp = wx.StaticBitmap(self, -1, wx.Bitmap(img))
+					bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(img)))
 					v.Add(bmp,0,wx.ALIGN_CENTER|wx.ALL,6)
 					bitmap_added = True
 					break
@@ -1011,7 +1015,7 @@ class TurningRadiusPanel(wx.Panel):
 						if img.GetWidth() > max_w_each:
 							scale = max_w_each / img.GetWidth()
 							img = img.Scale(max_w_each, int(img.GetHeight()*scale))
-						bmp = wx.StaticBitmap(self, -1, wx.Bitmap(img))
+						bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(img)))
 						row.Add(bmp,0,wx.ALL,4)
 					except Exception:
 						pass
@@ -1200,7 +1204,7 @@ class AxleStrengthPanel(wx.Panel):
 					if img.GetWidth() > max_w:
 						scale = max_w / img.GetWidth()
 						img = img.Scale(max_w, int(img.GetHeight()*scale))
-					bmp = wx.StaticBitmap(self, -1, wx.Bitmap(img))
+					bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(img)))
 					v.Add(bmp, 0, wx.ALIGN_CENTER | wx.ALL, 6)
 					bitmap_added = True
 					break
@@ -1365,7 +1369,7 @@ class FrameStrengthPanel(wx.Panel):
 				img=wx.Image(img_path); max_w=520
 				if img.GetWidth()>max_w:
 					img=img.Scale(max_w,int(img.GetHeight()*max_w/img.GetWidth()))
-				v.Add(wx.StaticBitmap(self,bitmap=wx.Bitmap(img)),0,wx.ALIGN_CENTER|wx.ALL,4)
+				v.Add(wx.StaticBitmap(self,bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(img))),0,wx.ALIGN_CENTER|wx.ALL,4)
 			except Exception:
 				v.Add(wx.StaticText(self,label='図読込失敗'),0,wx.ALL,4)
 		else:
@@ -1383,15 +1387,15 @@ class FrameStrengthPanel(wx.Panel):
 		grid_load=wx.FlexGridSizer(0,3,4,6)
 		for i in range(6):
 			grid_load.Add(wx.StaticText(self.legacy_panel,label=f'荷重{i+1}(kg)'),0,wx.ALIGN_CENTER_VERTICAL)
-			ctrl=wx.TextCtrl(self.legacy_panel,value='50',size=(70,-1),style=wx.TE_RIGHT); self.loads.append(ctrl); grid_load.Add(ctrl,0)
-			grid_load.Add((10,10)) if i%2==0 else None
+			ctrl=wx.TextCtrl(self.legacy_panel,value='50',size=wx.Size(70,-1),style=wx.TE_RIGHT); self.loads.append(ctrl); grid_load.Add(ctrl,0)
+			grid_load.Add(wx.Size(10,10)) if i%2==0 else None
 		box_load=wx.StaticBoxSizer(wx.StaticBox(self.legacy_panel,label='荷重入力 (6点)'),wx.VERTICAL)
 		box_load.Add(grid_load,0,wx.EXPAND|wx.ALL,4); legacy_s.Add(box_load,0,wx.EXPAND|wx.ALL,4)
 		self.dists=[]
 		grid_dist=wx.FlexGridSizer(0,2,4,6)
 		for i in range(5):
 			grid_dist.Add(wx.StaticText(self.legacy_panel,label=f'距離{i+1}(mm)'),0,wx.ALIGN_CENTER_VERTICAL)
-			dc=wx.TextCtrl(self.legacy_panel,value='500',size=(70,-1),style=wx.TE_RIGHT); self.dists.append(dc); grid_dist.Add(dc,0)
+			dc=wx.TextCtrl(self.legacy_panel,value='500',size=wx.Size(70,-1),style=wx.TE_RIGHT); self.dists.append(dc); grid_dist.Add(dc,0)
 		box_dist=wx.StaticBoxSizer(wx.StaticBox(self.legacy_panel,label='区間距離 (5区間)'),wx.VERTICAL)
 		box_dist.Add(grid_dist,0,wx.EXPAND|wx.ALL,4); legacy_s.Add(box_dist,0,wx.EXPAND|wx.ALL,4)
 		self.legacy_panel.SetSizer(legacy_s); v.Add(self.legacy_panel,0,wx.EXPAND|wx.ALL,4)
@@ -1447,7 +1451,7 @@ class FrameStrengthPanel(wx.Panel):
 			'5. 応力 σ = Mmax / Z, Z=(B H³ - b h³)/(6H)。\n'
 			'6. 安全率: 破断 >1.6, 降伏 >1.3。PDF出力可。'
 		)
-		help_ctrl=wx.TextCtrl(help_s.GetStaticBox(),value=help_txt,style=wx.TE_MULTILINE|wx.TE_READONLY|wx.BORDER_NONE,size=(-1,110))
+		help_ctrl=wx.TextCtrl(help_s.GetStaticBox(),value=help_txt,style=wx.TE_MULTILINE|wx.TE_READONLY|wx.BORDER_NONE,size=wx.Size(-1,110))
 		help_ctrl.SetBackgroundColour(self.GetBackgroundColour()); help_s.Add(help_ctrl,1,wx.EXPAND|wx.ALL,4); v.Add(help_s,0,wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP,4)
 		# ボタン
 		btn_row=wx.BoxSizer(wx.HORIZONTAL)
@@ -1523,7 +1527,10 @@ class FrameStrengthPanel(wx.Panel):
 					res=compute_container_frame_strength_supports_inside_hbeam(cw, span, front, rear, ax1_adj, ax2, B,H,tw,tf,tb,ty)
 			except ValueError as e:
 				wx.MessageBox(str(e),'入力エラー',wx.ICON_ERROR); return
-			res['container_weight']=cw; res['span']=span; res['front']=front; res['rear']=rear
+			# res の型が list[str]|str 推論で float 代入警告が出るため object 辞書へキャスト
+			res_obj = cast(dict[str, object], res)
+			res_obj['container_weight']=cw; res_obj['span']=span; res_obj['front']=front; res_obj['rear']=rear
+			res = res_obj
 			self.last=dict(**res, B=B,H=H,b=b,h=h,tw=tw,tf=tf,tb=tb,ty=ty)
 			lines=[
 				f'◆ 車枠強度計算結果 (コンテナ4点支持+支点(荷重間) / {"中抜き矩形" if sec_idx==0 else "H形鋼"}) ◆',
@@ -1535,7 +1542,10 @@ class FrameStrengthPanel(wx.Panel):
 				'[区間せん断力・曲げモーメント (縦桁1本換算)]',
 				f'R1 = {res['R1']:.2f} kg, R2 = {res['R2']:.2f} kg, P1=P2={res['P1']:.2f} kg',
 			]
-		for i,(s,m) in enumerate(zip(res['shear_list'],res['moment_list'])):
+		# せん断/モーメントリストもキャストして安全に列挙
+		shear_list_cast = cast(list[float], res.get('shear_list', []))
+		moment_list_cast = cast(list[float], res.get('moment_list', []))
+		for i,(s,m) in enumerate(zip(shear_list_cast, moment_list_cast)):
 			lines.append(f' 区間{i+1}: せん断={s:.2f} kg  M={m:.2f} kg·cm')
 		# 断面係数・応力
 		lines += [
@@ -1569,6 +1579,15 @@ class FrameStrengthPanel(wx.Panel):
 					try:_pdfmetrics.registerFont(_TTFont('JPFrame',f)); font='JPFrame'; break
 					except Exception: pass
 			v=self.last; c.setFont(font,14); c.drawString(40,h-50,'車枠強度計算書'); c.setFont(font,9)
+			# 型キャストで演算時の警告抑止
+			B=cast(float,v.get('B',0)); H=cast(float,v.get('H',0)); b=cast(float,v.get('b',0)); h=cast(float,v.get('h',0))
+			tw=cast(float,v.get('tw',0)); tf=cast(float,v.get('tf',0)); tb=cast(float,v.get('tb',0)); ty=cast(float,v.get('ty',0))
+			shear_list=cast(list[float],v.get('shear_list',[])); moment_list=cast(list[float],v.get('moment_list',[]))
+			dists_list=cast(list[float],v.get('dists',[])); weights_list=cast(list[float],v.get('weights',[]))
+			container_weight=cast(float,v.get('container_weight',0.0))
+			span_val=cast(float,v.get('span',v.get('span_len_mm',0.0)))
+			front_val=cast(float,v.get('front',v.get('front_offset_mm',0.0)))
+			rear_val=cast(float,v.get('rear',v.get('rear_offset_mm',0.0)))
 			diagram_path = create_frame_diagram_png(v)
 			start_y=h-90
 			# 断面寸法行は cross_type により分岐
@@ -1599,22 +1618,22 @@ class FrameStrengthPanel(wx.Panel):
 			c.setFont(font,10)
 			if v.get('mode') in ('container4','container4_axles','container4_supports_inside'):
 				c.drawString(40,next_y,'コンテナ支持諸元'); c.setFont(font,9); y=next_y-18
-				c.drawString(45,y,f"コンテナ総重量: {v.get('container_weight',0):.1f} kg (縦桁1本 {v.get('container_weight',0)/2.0:.1f} kg)"); y-=14
+				c.drawString(45,y,f"コンテナ総重量: {container_weight:.1f} kg (縦桁1本 {container_weight/2.0:.1f} kg)"); y-=14
 				if v.get('mode')=='container4':
-					c.drawString(45,y,f"L: {v['span']:.1f} mm  a: {v['front']:.1f} mm  b: {v['rear']:.1f} mm"); y-=18
+					c.drawString(45,y,f"L: {span_val:.1f} mm  a: {front_val:.1f} mm  b: {rear_val:.1f} mm"); y-=18
 				else:
-					c.drawString(45,y,f"L: {v['span_len_mm']:.1f} mm  a: {v['front_offset_mm']:.1f} mm  b: {v['rear_offset_mm']:.1f} mm  X1: {v['axle1_pos_mm']:.1f} mm  X2: {v['axle2_pos_mm']:.1f} mm"); y-=18
+					c.drawString(45,y,f"L: {cast(float,v.get('span_len_mm',span_val)):.1f} mm  a: {cast(float,v.get('front_offset_mm',front_val)):.1f} mm  b: {cast(float,v.get('rear_offset_mm',rear_val)):.1f} mm  X1: {cast(float,v.get('axle1_pos_mm',0.0)):.1f} mm  X2: {cast(float,v.get('axle2_pos_mm',0.0)):.1f} mm"); y-=18
 				c.setFont(font,11); c.drawString(40,y,'(1) 反力と内部せん断・曲げ'); c.setFont(font,9); y-=16
-				for i,(shear,moment,dist) in enumerate(zip(v['shear_list'],v['moment_list'], v.get('dists',[]))):
+				for i,(shear,moment,dist) in enumerate(zip(shear_list,moment_list,dists_list)):
 					c.drawString(55,y,f"区間{i+1} (長さ {dist:.1f} mm): せん断={shear:.1f} kg  M_end={moment:.1f} kg·cm"); y-=14
 			else:
 				c.drawString(40,next_y,'荷重/距離一覧'); c.setFont(font,9); y=next_y-18
-				for i,wgt in enumerate(v['weights']): c.drawString(45,y,f"荷重{i+1}: {wgt:.1f} kg"); y-=14
-				for i,dist in enumerate(v['dists']): c.drawString(200,next_y-18-14*i,f"距離{i+1}: {dist:.1f} mm")
+				for i,wgt in enumerate(weights_list): c.drawString(45,y,f"荷重{i+1}: {wgt:.1f} kg"); y-=14
+				for i,dist in enumerate(dists_list): c.drawString(200,next_y-18-14*i,f"距離{i+1}: {dist:.1f} mm")
 			sec_y=y-10; c.setFont(font,11); c.drawString(40,sec_y,'(2) 断面係数 Z / 応力'); c.setFont(font,9)
 			if v.get('cross_type')=='hbeam':
-				# H形鋼断面係数式
-				I = (v['B']*(v['H']**3) - (v['B'] - v.get('tw',0))*((v['H'] - 2*v.get('tf',0))**3))/12.0
+				# H形鋼断面係数式 (キャスト済み B,H,tw,tf 使用)
+				I = (B*(H**3) - (B - tw)*((H - 2*tf)**3))/12.0
 				c.drawString(55,sec_y-14,'I = (B×H³ - (B - tw)×(H - 2tf)³) / 12')
 				c.drawString(55,sec_y-28,f"Z = 2I/H = 2×{I:.1f}/{v['H']:.1f} = {v['Z_mm3']:.1f} mm³ = {v['Z_cm3']:.2f} cm³")
 			else:
@@ -1708,7 +1727,7 @@ class FrameStrengthPanel(wx.Panel):
 		dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 		dc.DrawText('荷重は左端から順に 荷重1～6 を入力。距離1～5 は隣接荷重中心間距離(mm)。',10,140)
 		dc.SelectObject(wx.NullBitmap)
-		return wx.StaticBitmap(self, bitmap=bmp)
+		return wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(bmp))
 
 	def _dim(self, sizer, label, default, parent=None):
 		# sizer が紐づくコンテナ (Panel) を親として部品生成することで
@@ -1717,7 +1736,7 @@ class FrameStrengthPanel(wx.Panel):
 			parent = getattr(sizer, 'GetContainingWindow', lambda: None)() or self
 		h = wx.BoxSizer(wx.HORIZONTAL)
 		h.Add(wx.StaticText(parent,label=label),0,wx.RIGHT|wx.ALIGN_CENTER_VERTICAL,6)
-		ctrl = wx.TextCtrl(parent,value=default,size=(80,-1),style=wx.TE_RIGHT)
+		ctrl = wx.TextCtrl(parent,value=default,size=wx.Size(80,-1),style=wx.TE_RIGHT)
 		h.Add(ctrl,0)
 		sizer.Add(h,0,wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP,4)
 		return ctrl
@@ -1726,15 +1745,15 @@ class FrameStrengthPanel(wx.Panel):
 
 class MainFrame(wx.Frame):
 	def __init__(self):
-		super().__init__(None,title='車両関連 統合計算ツール',size=(960,960))
+		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(960,960))
 		nb=wx.Notebook(self)
-		nb.AddPage(WeightCalcPanel(nb),'重量計算')
-		nb.AddPage(CarCalcPanel(nb),'改造審査')
-		nb.AddPage(TrailerSpecPanel(nb),'連結仕様')
-		nb.AddPage(StabilityAnglePanel(nb),'安定傾斜角')
-		nb.AddPage(TurningRadiusPanel(nb),'最小回転半径')
-		nb.AddPage(AxleStrengthPanel(nb),'車軸強度')
-		nb.AddPage(FrameStrengthPanel(nb),'車枠強度')
+		nb.AddPage(WeightCalcPanel(nb),'重量計算書')
+		#nb.AddPage(CarCalcPanel(nb),'改造審査')
+		nb.AddPage(TrailerSpecPanel(nb),'ライト・トレーラの連結仕様検討書')
+		nb.AddPage(StabilityAnglePanel(nb),'連結時最大安定角度計算書')
+		nb.AddPage(TurningRadiusPanel(nb),'最小回転半径計算書')
+		nb.AddPage(AxleStrengthPanel(nb),'車軸強度計算書')
+		nb.AddPage(FrameStrengthPanel(nb),'車枠強度計算書')
 		self.Centre()
 
 def main():
