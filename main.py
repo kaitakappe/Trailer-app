@@ -162,6 +162,164 @@ def show_frame_graph(data: dict):
 	FRAME_GRAPH_WINDOW.set_data(data)
 	FRAME_GRAPH_WINDOW.Raise()
 
+def create_cross_section_diagram_png(B: float, H: float, b: float, h: float, tw: float=0, tf: float=0, cross_type: str='rect', width=300, height=300) -> str:
+	"""断面図を生成してPNGパスを返す (mm単位)"""
+	try:
+		bmp = wx.Bitmap(width, height)
+		dc = wx.MemoryDC(bmp)
+		dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
+		dc.Clear()
+		# 中心位置
+		cx, cy = width // 2, height // 2
+		# スケール (最大寸法を基準に)
+		max_dim = max(B, H)
+		scale = min(200, (min(width, height) - 60) / max_dim) if max_dim > 0 else 1
+		if cross_type == 'hbeam':
+			# H形鋼
+			w_outer = B * scale
+			h_outer = H * scale
+			w_web = tw * scale
+			h_flange = tf * scale
+			# 外形
+			dc.SetBrush(wx.Brush(wx.Colour(180,180,180)))
+			dc.SetPen(wx.Pen(wx.Colour(0,0,0),2))
+			# 上フランジ
+			dc.DrawRectangle(int(cx - w_outer/2), int(cy - h_outer/2), int(w_outer), int(h_flange))
+			# ウェブ
+			dc.DrawRectangle(int(cx - w_web/2), int(cy - h_outer/2 + h_flange), int(w_web), int(h_outer - 2*h_flange))
+			# 下フランジ
+			dc.DrawRectangle(int(cx - w_outer/2), int(cy + h_outer/2 - h_flange), int(w_outer), int(h_flange))
+			# 寸法線
+			dc.SetPen(wx.Pen(wx.Colour(100,100,100),1))
+			dc.SetTextForeground(wx.Colour(0,0,0))
+			dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+			# B寸法
+			y_dim = int(cy - h_outer/2 - 15)
+			dc.DrawLine(int(cx - w_outer/2), y_dim, int(cx + w_outer/2), y_dim)
+			dc.DrawText(f'B={B:.1f}', int(cx - 30), y_dim - 15)
+			# H寸法
+			x_dim = int(cx + w_outer/2 + 15)
+			dc.DrawLine(x_dim, int(cy - h_outer/2), x_dim, int(cy + h_outer/2))
+			dc.DrawText(f'H={H:.1f}', x_dim + 5, int(cy - 10))
+			# tw寸法 (ウェブの外側に表示)
+			dc.DrawText(f'tw={tw:.1f}', int(cx + w_web/2 + 8), int(cy))
+			# tf寸法 (上フランジの外側に表示)
+			dc.DrawText(f'tf={tf:.1f}', int(cx - w_outer/2 - 45), int(cy - h_outer/2 + h_flange/2))
+		else:
+			# 中抜き矩形
+			w_outer = B * scale
+			h_outer = H * scale
+			w_inner = b * scale
+			h_inner = h * scale
+			# 外形（グレー塗りつぶし）
+			dc.SetBrush(wx.Brush(wx.Colour(180,180,180)))
+			dc.SetPen(wx.Pen(wx.Colour(0,0,0),2))
+			dc.DrawRectangle(int(cx - w_outer/2), int(cy - h_outer/2), int(w_outer), int(h_outer))
+			# 内空部（白抜き）
+			dc.SetBrush(wx.Brush(wx.Colour(255,255,255)))
+			dc.SetPen(wx.Pen(wx.Colour(0,0,0),1))
+			dc.DrawRectangle(int(cx - w_inner/2), int(cy - h_inner/2), int(w_inner), int(h_inner))
+			# 寸法線
+			dc.SetPen(wx.Pen(wx.Colour(100,100,100),1))
+			dc.SetTextForeground(wx.Colour(0,0,0))
+			dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+			# B寸法（上）
+			y_dim = int(cy - h_outer/2 - 15)
+			dc.DrawLine(int(cx - w_outer/2), y_dim, int(cx + w_outer/2), y_dim)
+			dc.DrawText(f'B={B:.1f}', int(cx - 30), y_dim - 15)
+			# H寸法（右）
+			x_dim = int(cx + w_outer/2 + 15)
+			dc.DrawLine(x_dim, int(cy - h_outer/2), x_dim, int(cy + h_outer/2))
+			dc.DrawText(f'H={H:.1f}', x_dim + 5, int(cy - 10))
+			# b寸法（内側上）
+			y_dim_inner = int(cy - h_inner/2 + 15)
+			dc.DrawLine(int(cx - w_inner/2), y_dim_inner, int(cx + w_inner/2), y_dim_inner)
+			dc.DrawText(f'b={b:.1f}', int(cx - 25), y_dim_inner - 15)
+			# h寸法（内側右）
+			x_dim_inner = int(cx + w_inner/2 - 15)
+			dc.DrawLine(x_dim_inner, int(cy - h_inner/2), x_dim_inner, int(cy + h_inner/2))
+			dc.DrawText(f'h={h:.1f}', x_dim_inner - 35, int(cy))
+		dc.SelectObject(wx.NullBitmap)
+		fd, path = tempfile.mkstemp(suffix='.png', prefix='cross_section_')
+		os.close(fd)
+		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
+		return path
+	except Exception:
+		return ''
+
+def create_container_seating_diagram_png(span: float, front: float, rear: float, x1: float, x2: float, coupler_offset: float=0, width=700, height=280) -> str:
+	"""コンテナ4点座配置図を生成しPNGパスを返す (mm単位入力)"""
+	try:
+		bmp = wx.Bitmap(width, height)
+		dc = wx.MemoryDC(bmp)
+		dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
+		dc.Clear()
+		margin_x = 60
+		beam_y = 140
+		# スケール計算 (カプラ位置を含めた全長)
+		total_length = coupler_offset + span
+		scale = (width - 2*margin_x) / float(total_length)
+		def to_x(pos_mm): return int(margin_x + pos_mm * scale)
+		# カプラ位置 (赤マーカー)
+		dc.SetBrush(wx.Brush(wx.Colour(255,0,0)))
+		dc.SetPen(wx.Pen(wx.Colour(200,0,0),2))
+		dc.DrawCircle(to_x(0), beam_y, 8)
+		dc.SetTextForeground(wx.Colour(200,0,0))
+		dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+		dc.DrawText('カプラ', to_x(0)-20, beam_y-25)
+		# 縦桁 (梁)
+		dc.SetPen(wx.Pen(wx.Colour(0,0,0),3))
+		dc.DrawLine(to_x(coupler_offset), beam_y, to_x(coupler_offset+span), beam_y)
+		# 4点座 (オレンジ丸: 前側2点, 後側2点)
+		pad_front1 = coupler_offset + front  # C + a
+		pad_front2 = coupler_offset + front  # C + a
+		pad_rear1 = coupler_offset + (span - rear)  # C + L - b
+		pad_rear2 = coupler_offset + (span - rear)  # C + L - b
+		dc.SetBrush(wx.Brush(wx.Colour(255,140,0)))
+		dc.SetPen(wx.Pen(wx.Colour(255,100,0),2))
+		for pos in [pad_front1, pad_rear1]:
+			dc.DrawCircle(to_x(pos), beam_y, 12)
+		# ラベル
+		dc.SetTextForeground(wx.Colour(255,100,0))
+		dc.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+		dc.DrawText('前座', to_x(pad_front1)-18, beam_y-32)
+		dc.DrawText('後座', to_x(pad_rear1)-18, beam_y-32)
+		# 支点 (青三角: X1, X2)
+		dc.SetBrush(wx.Brush(wx.Colour(0,100,200)))
+		dc.SetPen(wx.Pen(wx.Colour(0,80,180),2))
+		for xpos in [coupler_offset+x1, coupler_offset+x2]:
+			sx = to_x(xpos)
+			pts = [wx.Point(sx-10, beam_y+10), wx.Point(sx, beam_y+26), wx.Point(sx+10, beam_y+10)]
+			dc.DrawPolygon(pts)
+		dc.SetTextForeground(wx.Colour(0,80,180))
+		dc.DrawText('X1', to_x(coupler_offset+x1)-8, beam_y+32)
+		dc.DrawText('X2', to_x(coupler_offset+x2)-8, beam_y+32)
+		# 寸法線 (グレー点線)
+		dc.SetPen(wx.Pen(wx.Colour(120,120,120),1,wx.PENSTYLE_SHORT_DASH))
+		dim_y = beam_y + 60
+		for pos in [0, coupler_offset, coupler_offset+front, coupler_offset+x1, coupler_offset+x2, coupler_offset+span-rear, coupler_offset+span]:
+			dc.DrawLine(to_x(pos), beam_y+4, to_x(pos), dim_y+8)
+		# 寸法値
+		dc.SetTextForeground(wx.Colour(0,0,0))
+		dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+		dc.DrawText(f'C={coupler_offset:.0f}', to_x(coupler_offset/2)-20, dim_y-8)
+		dc.DrawText(f'a={front:.0f}', to_x(coupler_offset+front/2)-20, dim_y+16)
+		dc.DrawText(f'X1={x1:.0f}', to_x(coupler_offset+x1)-20, dim_y+24)
+		dc.DrawText(f'X2={x2:.0f}', to_x(coupler_offset+x2)-20, dim_y+24)
+		dc.DrawText(f'b={rear:.0f}', to_x(coupler_offset+(span+span-rear)/2)-20, dim_y+16)
+		dc.DrawText(f'L={span:.0f}', to_x(coupler_offset+span/2)-20, beam_y-60)
+		# 凡例
+		dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+		dc.SetTextForeground(wx.Colour(0,0,0))
+		dc.DrawText('● 赤:カプラ(連結部)  ● 橙:コンテナ座(4点)  ▲ 青:サスペンションハンガー(支点)', 20, 20)
+		dc.SelectObject(wx.NullBitmap)
+		fd, path = tempfile.mkstemp(suffix='.png', prefix='container_seating_')
+		os.close(fd)
+		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
+		return path
+	except Exception:
+		return ''
+
 def create_frame_diagram_png(data: dict, width=900, height=360) -> str:
 	"""車枠強度図を一時PNGファイルとして生成しパスを返す"""
 	if not data:
@@ -1441,21 +1599,28 @@ class FrameStrengthPanel(wx.Panel):
 		box_dist=wx.StaticBoxSizer(wx.StaticBox(self.legacy_panel,label='区間距離 (5区間)'),wx.VERTICAL)
 		box_dist.Add(grid_dist,0,wx.EXPAND|wx.ALL,4); legacy_s.Add(box_dist,0,wx.EXPAND|wx.ALL,4)
 		self.legacy_panel.SetSizer(legacy_s); v.Add(self.legacy_panel,0,wx.EXPAND|wx.ALL,4)
-		# コンテナ4点支持モード入力
+		# コンテナ4点座 × 支点2点(荷重間) モード入力
 		self.container_panel = wx.Panel(self)
 		cont_s = wx.BoxSizer(wx.VERTICAL)
 		grid_cont = wx.FlexGridSizer(0,2,4,6)
 		self.ct_weight = wx.TextCtrl(self.container_panel,value='2800',style=wx.TE_RIGHT)
 		self.ct_span = wx.TextCtrl(self.container_panel,value='6000',style=wx.TE_RIGHT)
+		self.ct_coupler_offset = wx.TextCtrl(self.container_panel,value='800',style=wx.TE_RIGHT)
+		self.ct_coupler_offset.SetToolTip('連結部(カプラ)から縦桁前端までの距離')
 		self.ct_front_off = wx.TextCtrl(self.container_panel,value='600',style=wx.TE_RIGHT)
 		self.ct_rear_off = wx.TextCtrl(self.container_panel,value='600',style=wx.TE_RIGHT)
-		self.ct_axle1 = wx.TextCtrl(self.container_panel,value='600',style=wx.TE_RIGHT)
-		grid_cont.Add(wx.StaticText(self.container_panel,label='コンテナ総重量 (kg)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_weight,0,wx.EXPAND)
+		self.ct_axle1 = wx.TextCtrl(self.container_panel,value='2400',style=wx.TE_RIGHT)
+		self.ct_axle1.SetToolTip('サスペンションハンガー中心位置 (前側支点)')
+		self.ct_axle2 = wx.TextCtrl(self.container_panel,value='3600',style=wx.TE_RIGHT)
+		self.ct_axle2.SetToolTip('サスペンションハンガー中心位置 (後側支点)')
+		grid_cont.Add(wx.StaticText(self.container_panel,label='コンテナ総重量 W (kg)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_weight,0,wx.EXPAND)
 		grid_cont.Add(wx.StaticText(self.container_panel,label='縦桁全長 L (mm)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_span,0,wx.EXPAND)
+		grid_cont.Add(wx.StaticText(self.container_panel,label='連結部オフセット C (mm) ※カプラ~縦桁前端'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_coupler_offset,0,wx.EXPAND)
 		grid_cont.Add(wx.StaticText(self.container_panel,label='前荷重オフセット a (mm)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_front_off,0,wx.EXPAND)
 		grid_cont.Add(wx.StaticText(self.container_panel,label='後荷重オフセット b (mm)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_rear_off,0,wx.EXPAND)
-		grid_cont.Add(wx.StaticText(self.container_panel,label='支点位置 X (mm)'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_axle1,0,wx.EXPAND)
-		cont_box = wx.StaticBoxSizer(wx.StaticBox(self.container_panel,label='コンテナ4点支持パラメータ'),wx.VERTICAL)
+		grid_cont.Add(wx.StaticText(self.container_panel,label='支点位置 X1 (mm) ※サスペンションハンガー中心'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_axle1,0,wx.EXPAND)
+		grid_cont.Add(wx.StaticText(self.container_panel,label='支点位置 X2 (mm) ※サスペンションハンガー中心'),0,wx.ALIGN_CENTER_VERTICAL); grid_cont.Add(self.ct_axle2,0,wx.EXPAND)
+		cont_box = wx.StaticBoxSizer(wx.StaticBox(self.container_panel,label='コンテナ4点座 × 支点2点(荷重間) パラメータ'),wx.VERTICAL)
 		cont_box.Add(grid_cont,0,wx.EXPAND|wx.ALL,4)
 		cont_s.Add(cont_box,0,wx.EXPAND|wx.ALL,4)
 		self.container_panel.SetSizer(cont_s); v.Add(self.container_panel,0,wx.EXPAND|wx.ALL,4)
@@ -1530,7 +1695,7 @@ class FrameStrengthPanel(wx.Panel):
 					res=compute_frame_strength_hbeam(weights,dists,B,H,tw,tf,tb,ty)
 			except ValueError as e:
 				wx.MessageBox(str(e),'入力エラー',wx.ICON_ERROR); return
-			self.last=dict(mode='legacy',weights=weights,dists=dists,B=B,H=H,b=b,h=h,tw=tw,tf=tf,tb=tb,ty=ty,**res)
+			self.last=dict(mode='legacy',weights=weights,dists=dists,B=B,H=H,b=b,h=h,tw=tw,tf=tf,tb=tb,ty=ty,cross_type=('hbeam' if sec_idx==1 else 'rect'),**res)
 			lines=[
 				f'◆ 車枠強度計算結果 (従来6点 / {"中抜き矩形" if sec_idx==0 else "H形鋼"}) ◆',
 				'[入力]',
@@ -1542,43 +1707,45 @@ class FrameStrengthPanel(wx.Panel):
 			]
 			for i,(s,m) in enumerate(zip(res['shear_list'],res['moment_list'])):
 				lines.append(f' 区間{i+1}: せん断={s:.2f} kg  M={m:.2f} kg·cm')
-		else:  # コンテナ4点支持 (支点1入力: X、もう一方は荷重間に自動配置)
+		else:  # コンテナ4点座 × 支点2点(荷重間)
 			try:
 				cw=float(self.ct_weight.GetValue())
 				span=float(self.ct_span.GetValue())
+				coupler_offset=float(self.ct_coupler_offset.GetValue())
 				front=float(self.ct_front_off.GetValue())
 				rear=float(self.ct_rear_off.GetValue())
 				ax1=float(self.ct_axle1.GetValue())
+				ax2=float(self.ct_axle2.GetValue())
 			except ValueError:
 				wx.MessageBox('コンテナ重量/スパン/オフセット/支点位置の数値を確認してください。','入力エラー',wx.ICON_ERROR); return
-			# 自動配置: X1 を荷重間にクランプし、X2 は (X1 と L-b) の中点に設定
-			lo = front + 1e-6
-			hi = (span - rear) - 1e-6
+			# 幾何条件検証: a < X1 < X2 < L - b
+			lo = front
+			hi = (span - rear)
 			if lo >= hi:
 				wx.MessageBox('a + b が L 以上です。荷重配置を見直してください。','入力エラー',wx.ICON_ERROR); return
-			ax1_adj = ax1
-			if ax1_adj < lo: ax1_adj = lo
-			if ax1_adj >= hi: ax1_adj = hi - 1.0  # 最低マージン
-			ax2 = 0.5*(ax1_adj + (span - rear))
-			if ax2 >= hi: ax2 = hi - 1e-6
-			if ax2 <= ax1_adj: ax2 = ax1_adj + 1e-6
+			if not (lo < ax1 < ax2 < hi):
+				wx.MessageBox(f'支点条件違反: a({front:.1f}) < X1({ax1:.1f}) < X2({ax2:.1f}) < L-b({hi:.1f}) を満たしてください。','入力エラー',wx.ICON_ERROR); return
 			try:
 				if sec_idx==0:
-					res=compute_container_frame_strength_supports_inside(cw, span, front, rear, ax1_adj, ax2, B,H,b,h,tb,ty)
+					res=compute_container_frame_strength_supports_inside(cw, span, front, rear, ax1, ax2, B,H,b,h,tb,ty)
 				else:
-					res=compute_container_frame_strength_supports_inside_hbeam(cw, span, front, rear, ax1_adj, ax2, B,H,tw,tf,tb,ty)
+					res=compute_container_frame_strength_supports_inside_hbeam(cw, span, front, rear, ax1, ax2, B,H,tw,tf,tb,ty)
 			except ValueError as e:
 				wx.MessageBox(str(e),'入力エラー',wx.ICON_ERROR); return
 			# res の型が list[str]|str 推論で float 代入警告が出るため object 辞書へキャスト
 			res_obj = cast(dict[str, object], res)
 			res_obj['container_weight']=cw; res_obj['span']=span; res_obj['front']=front; res_obj['rear']=rear
 			res = res_obj
-			self.last=dict(**res, B=B,H=H,b=b,h=h,tw=tw,tf=tf,tb=tb,ty=ty)
+			# 既存計算関数の mode / cross_type を尊重し保持
+			# 既存 dict に追加フィールドのみ付与（mode / cross_type は既存値を尊重）
+			self.last = dict(res)  # コピー
+			self.last.update(dict(B=B,H=H,b=b,h=h,tw=tw,tf=tf,tb=tb,ty=ty,coupler_offset=coupler_offset))
 			lines=[
-				f'◆ 車枠強度計算結果 (コンテナ4点支持+支点(荷重間) / {"中抜き矩形" if sec_idx==0 else "H形鋼"}) ◆',
+				f'◆ 車枠強度計算結果 (コンテナ4点座+支点(荷重間) / {"中抜き矩形" if sec_idx==0 else "H形鋼"}) ◆',
 				f'コンテナ総重量 = {cw:.1f} kg (縦桁1本 {cw/2.0:.1f} kg)',
+				f'連結部オフセット C = {coupler_offset:.1f} mm (カプラ~縦桁前端)',
 				f'縦桁全長 L = {span:.1f} mm, 前荷重オフセット a = {front:.1f} mm, 後荷重オフセット b = {rear:.1f} mm',
-				f'支点位置 X = {ax1_adj:.1f} mm, X2(自動) = {ax2:.1f} mm (a と L-b の間)',
+				f'支点位置 X1 = {ax1:.1f} mm, X2 = {ax2:.1f} mm (a と L-b の間)',
 				f'断面 B×H / b×h = {B:.1f}×{H:.1f} / {b:.1f}×{h:.1f} mm',
 				'',
 				'[区間せん断力・曲げモーメント (縦桁1本換算)]',
@@ -1604,7 +1771,7 @@ class FrameStrengthPanel(wx.Panel):
 		else:
 			lines.append('断面係数式: Z = (B H³ - b h³)/(6 H)')
 		show_result('車枠強度計算結果', '\n'.join(lines))
-		show_frame_graph(self.last)
+		# show_frame_graph(self.last)  # グラフウィンドウは非表示
 
 	def on_export_pdf(self,_):
 		if self.last is None:
@@ -1615,87 +1782,220 @@ class FrameStrengthPanel(wx.Panel):
 			if dlg.ShowModal()!=wx.ID_OK: return
 			path=dlg.GetPath()
 		try:
-			c=_pdf_canvas.Canvas(path,pagesize=_A4); w,h=_A4; font='Helvetica'
+			# 1) Canvas とフォント
+			c=_pdf_canvas.Canvas(path,pagesize=_A4)
+			W,H=_A4
+			font='Helvetica'
 			for f in ['ipaexg.ttf','ipaexm.ttf','fonts/ipaexg.ttf','fonts/ipaexm.ttf']:
 				if os.path.exists(f):
-					try:_pdfmetrics.registerFont(_TTFont('JPFrame',f)); font='JPFrame'; break
-					except Exception: pass
-			v=self.last; c.setFont(font,14); c.drawString(40,h-50,'車枠強度計算書'); c.setFont(font,9)
-			# 型キャストで演算時の警告抑止
-			B=cast(float,v.get('B',0)); H=cast(float,v.get('H',0)); b=cast(float,v.get('b',0)); h=cast(float,v.get('h',0))
-			tw=cast(float,v.get('tw',0)); tf=cast(float,v.get('tf',0)); tb=cast(float,v.get('tb',0)); ty=cast(float,v.get('ty',0))
-			shear_list=cast(list[float],v.get('shear_list',[])); moment_list=cast(list[float],v.get('moment_list',[]))
-			dists_list=cast(list[float],v.get('dists',[])); weights_list=cast(list[float],v.get('weights',[]))
-			container_weight=cast(float,v.get('container_weight',0.0))
-			span_val=cast(float,v.get('span',v.get('span_len_mm',0.0)))
-			front_val=cast(float,v.get('front',v.get('front_offset_mm',0.0)))
-			rear_val=cast(float,v.get('rear',v.get('rear_offset_mm',0.0)))
-			diagram_path = create_frame_diagram_png(v)
-			start_y=h-90
-			# 断面寸法行は cross_type により分岐
-			if v.get('cross_type')=='hbeam':
-				rows=[
-					['項目','値','単位','項目','値','単位'],
-					['B',f"{v['B']:.1f}",'mm','H',f"{v['H']:.1f}",'mm'],
-					['tw',f"{v.get('tw',0):.1f}",'mm','tf',f"{v.get('tf',0):.1f}",'mm'],
-					['θb',f"{v['tb']:.1f}",'kg/cm²','θy',f"{v['ty']:.1f}",'kg/cm²']
-				]
-			else:
-				rows=[
-					['項目','値','単位','項目','値','単位'],
-					['B',f"{v['B']:.1f}",'mm','H',f"{v['H']:.1f}",'mm'],
-					['b',f"{v['b']:.1f}",'mm','h',f"{v['h']:.1f}",'mm'],
-					['θb',f"{v['tb']:.1f}",'kg/cm²','θy',f"{v['ty']:.1f}",'kg/cm²']
-				]
-			cw=[50,60,50,50,60,50]
-			def table(x,y,cw,rh,data):
-				W=sum(cw); Ht=rh*len(data); c.rect(x,y-Ht,W,Ht)
-				for i in range(1,len(data)): c.line(x,y-rh*i,x+W,y-rh*i)
-				cx=x
-				for wcol in cw[:-1]: cx+=wcol; c.line(cx,y,cx,y-Ht)
-				for r,row in enumerate(data):
-					for j,cell in enumerate(row): c.drawString(x+5+sum(cw[:j]), y-rh*(r+1)+4, cell)
-				return y-Ht-18
-			next_y=table(40,start_y,cw,16,rows)
-			c.setFont(font,10)
-			if v.get('mode') in ('container4','container4_axles','container4_supports_inside'):
-				c.drawString(40,next_y,'コンテナ支持諸元'); c.setFont(font,9); y=next_y-18
-				c.drawString(45,y,f"コンテナ総重量: {container_weight:.1f} kg (縦桁1本 {container_weight/2.0:.1f} kg)"); y-=14
-				if v.get('mode')=='container4':
-					c.drawString(45,y,f"L: {span_val:.1f} mm  a: {front_val:.1f} mm  b: {rear_val:.1f} mm"); y-=18
-				else:
-					c.drawString(45,y,f"L: {cast(float,v.get('span_len_mm',span_val)):.1f} mm  a: {cast(float,v.get('front_offset_mm',front_val)):.1f} mm  b: {cast(float,v.get('rear_offset_mm',rear_val)):.1f} mm  X1: {cast(float,v.get('axle1_pos_mm',0.0)):.1f} mm  X2: {cast(float,v.get('axle2_pos_mm',0.0)):.1f} mm"); y-=18
-				c.setFont(font,11); c.drawString(40,y,'(1) 反力と内部せん断・曲げ'); c.setFont(font,9); y-=16
-				for i,(shear,moment,dist) in enumerate(zip(shear_list,moment_list,dists_list)):
-					c.drawString(55,y,f"区間{i+1} (長さ {dist:.1f} mm): せん断={shear:.1f} kg  M_end={moment:.1f} kg·cm"); y-=14
-			else:
-				c.drawString(40,next_y,'荷重/距離一覧'); c.setFont(font,9); y=next_y-18
-				for i,wgt in enumerate(weights_list): c.drawString(45,y,f"荷重{i+1}: {wgt:.1f} kg"); y-=14
-				for i,dist in enumerate(dists_list): c.drawString(200,next_y-18-14*i,f"距離{i+1}: {dist:.1f} mm")
-			sec_y=y-10; c.setFont(font,11); c.drawString(40,sec_y,'(2) 断面係数 Z / 応力'); c.setFont(font,9)
-			if v.get('cross_type')=='hbeam':
-				# H形鋼断面係数式 (キャスト済み B,H,tw,tf 使用)
-				I = (B*(H**3) - (B - tw)*((H - 2*tf)**3))/12.0
-				c.drawString(55,sec_y-14,'I = (B×H³ - (B - tw)×(H - 2tf)³) / 12')
-				c.drawString(55,sec_y-28,f"Z = 2I/H = 2×{I:.1f}/{v['H']:.1f} = {v['Z_mm3']:.1f} mm³ = {v['Z_cm3']:.2f} cm³")
-			else:
-				c.drawString(55,sec_y-14,'Z = (B×H³ - b×h³)/(6×H)')
-				c.drawString(55,sec_y-28,f"  = ({v['B']:.1f}×{v['H']:.1f}³ - {v['b']:.1f}×{v['h']:.1f}³)/(6×{v['H']:.1f}) = {v['Z_mm3']:.1f} mm³ = {v['Z_cm3']:.2f} cm³")
-			sig_y=sec_y-56; c.setFont(font,11); c.drawString(40,sig_y,'(3) 曲げ応力 σ の計算'); c.setFont(font,9)
-			c.drawString(55,sig_y-14,f"σ = Mmax / Z = {v['Mmax']:.1f} / {v['Z_cm3']:.2f} = {v['sigma']:.2f} kg/cm²")
-			sf_y=sig_y-44; c.setFont(font,11); c.drawString(40,sf_y,'(4) 安全率 (荷重倍率2.5倍)'); c.setFont(font,9)
-			c.drawString(55,sf_y-14,f"破断安全率 = θb / (2.5×σ) = {v['tb']:.1f} /(2.5×{v['sigma']:.2f}) = {v['sf_break']:.2f} {'>1.6 適合' if v['ok_break'] else '≦1.6 不適合'}")
-			c.drawString(55,sf_y-28,f"降伏安全率 = θy / (2.5×σ) = {v['ty']:.1f} /(2.5×{v['sigma']:.2f}) = {v['sf_yield']:.2f} {'>1.3 適合' if v['ok_yield'] else '≦1.3 不適合'}")
-			final_y=sf_y-54; c.setFont(font,12); c.drawString(40,final_y,f"総合判定: {'基準を満足する' if (v['ok_break'] and v['ok_yield']) else '基準を満足しない'}")
-			if diagram_path:
-				img_w = 460; img_h = 150; img_y = 120; heading_y = img_y + img_h + 10
+					try:
+						_pdfmetrics.registerFont(_TTFont('JPFrame',f)); font='JPFrame'; break
+					except Exception:
+						pass
+			# 2) 余白とレイアウトユーティリティ
+			left=40; right=40; top=40; bottom=50
+			y=H-top
+			c.setFont(font,13)
+			c.drawString(left, y, '車枠強度計算書')
+			y -= 18
+			c.setFont(font,9)
+			v=self.last
+			# コンテナモードなら4点座配置図を最初に挿入
+			mode=str(v.get('mode','legacy'))
+			if mode in ('container4','container4_axles','container4_supports_inside','container'):
+				span=cast(float,v.get('span',v.get('span_len_mm',0.0)))
+				front=cast(float,v.get('front',v.get('front_offset_mm',0.0)))
+				rear=cast(float,v.get('rear',v.get('rear_offset_mm',0.0)))
+				ax1=cast(float,v.get('axle1_pos_mm',v.get('X1',0.0)))
+				ax2=cast(float,v.get('axle2_pos_mm',v.get('X2',0.0)))
+				coupler_off=cast(float,v.get('coupler_offset',0.0))
+				seating_diagram = ''
 				try:
-					c.setFont(font,11); c.drawString(40, heading_y, 'せん断力・曲げモーメント図')
-					c.drawImage(diagram_path, 40, img_y, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
-					c.setFont(font,8); c.drawString(40, 100, '赤:せん断力ステップ / 青:区間終端曲げモーメント')
+					seating_diagram = create_container_seating_diagram_png(span, front, rear, ax1, ax2, coupler_off)
 				except Exception:
-					c.setFont(font,9); c.drawString(40, heading_y, '図描画に失敗しました。')
-			c.save(); wx.MessageBox('PDFを保存しました。','完了',wx.ICON_INFORMATION)
+					pass
+				if seating_diagram:
+					try:
+						img_w=450; img_h=140
+						c.drawImage(seating_diagram, left, y-img_h, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+						y -= img_h + 8
+					except Exception:
+						pass
+			# ヘルパ: 改ページ判定
+			def ensure_space(h_needed: float):
+				nonlocal y
+				if y - h_needed < bottom:
+					c.showPage()
+					c.setFont(font,10)
+					y = H - top
+					return True
+				return False
+			# ヘルパ: ボックス見出し
+			def section(title: str, gap: int=6):
+				nonlocal y
+				ensure_space(18)
+				c.setFont(font,10)
+				c.drawString(left, y, title)
+				y -= gap + 3
+				c.setFont(font,9)
+			# ヘルパ: 単純表 (ラベル, 値, 単位)
+			def simple_table(rows: list[tuple[str,str,str]], colw=(150,85,55), row_h=13):
+				nonlocal y
+				Wtot=sum(colw); Ht=row_h*len(rows)
+				ensure_space(Ht+6)
+				c.rect(left, y-Ht, Wtot, Ht)
+				# 横線
+				for i in range(1,len(rows)):
+					c.line(left, y-row_h*i, left+Wtot, y-row_h*i)
+				# 縦線
+				cx=left
+				for wcol in colw[:-1]:
+					cx += wcol
+					c.line(cx, y, cx, y-Ht)
+				# 文字
+				for r,(lab,val,unit) in enumerate(rows):
+					cy = y - row_h*(r+1) + 3
+					c.drawString(left+4, cy, lab)
+					c.drawRightString(left+colw[0]+colw[1]-6, cy, val)
+					c.drawString(left+colw[0]+colw[1]+5, cy, unit)
+				y -= Ht + 8
+			# ヘルパ: 2列×3カラム表 (項目/値/単位 ×2)
+			def grid_2x(rows: list[list[str]], colw=(55,55,40, 55,55,40), row_h=13):
+				nonlocal y
+				Wtot=sum(colw); Ht=row_h*len(rows)
+				ensure_space(Ht+6)
+				c.rect(left, y-Ht, Wtot, Ht)
+				for i in range(1,len(rows)):
+					c.line(left, y-row_h*i, left+Wtot, y-row_h*i)
+				cx=left
+				for wcol in colw[:-1]:
+					cx += wcol
+					c.line(cx, y, cx, y-Ht)
+				for r,row in enumerate(rows):
+					cy=y-row_h*(r+1)+3
+					cx=left+4
+					for i,val in enumerate(row):
+						c.drawString(cx, cy, str(val))
+						cx += colw[i]
+				y -= Ht + 8
+			# 3) 入力諸元
+			B=cast(float,v.get('B',0)); Hs=cast(float,v.get('H',0)); bb=cast(float,v.get('b',0)); hh=cast(float,v.get('h',0))
+			tw=cast(float,v.get('tw',0)); tf=cast(float,v.get('tf',0)); tb=cast(float,v.get('tb',0)); ty=cast(float,v.get('ty',0))
+			cross_type=str(v.get('cross_type','rect'))
+			section('入力諸元')
+			if cross_type=='hbeam':
+				grid_2x([
+					['B', f"{B:.1f}", 'mm', 'H', f"{Hs:.1f}", 'mm'],
+					['tw', f"{tw:.1f}", 'mm', 'tf', f"{tf:.1f}", 'mm'],
+					['θb', f"{tb:.1f}", 'kg/cm²', 'θy', f"{ty:.1f}", 'kg/cm²'],
+				])
+			else:
+				grid_2x([
+					['B', f"{B:.1f}", 'mm', 'H', f"{Hs:.1f}", 'mm'],
+					['b', f"{bb:.1f}", 'mm', 'h', f"{hh:.1f}", 'mm'],
+					['θb', f"{tb:.1f}", 'kg/cm²', 'θy', f"{ty:.1f}", 'kg/cm²'],
+				])
+			# 断面図を追加
+			section('断面図')
+			ensure_space(130)
+			cross_diagram = ''
+			try:
+				cross_diagram = create_cross_section_diagram_png(B, Hs, bb, hh, tw, tf, cross_type)
+			except Exception:
+				pass
+			if cross_diagram:
+				try:
+					img_w=130; img_h=130
+					c.drawImage(cross_diagram, left, y-img_h, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+					y -= img_h + 8
+				except Exception:
+					pass
+			else:
+				y -= 6
+			y -= 6  # 断面図の後に少し間隔を追加
+			mode=str(v.get('mode','legacy'))
+			if mode in ('container4','container4_axles','container4_supports_inside','container'):
+				cw=cast(float,v.get('container_weight',0.0))
+				span=cast(float,v.get('span',v.get('span_len_mm',0.0)))
+				coupler_off=cast(float,v.get('coupler_offset',0.0))
+				front=cast(float,v.get('front',v.get('front_offset_mm',0.0)))
+				rear=cast(float,v.get('rear',v.get('rear_offset_mm',0.0)))
+				ax1=cast(float,v.get('axle1_pos_mm',v.get('X1',0.0)))
+				ax2=cast(float,v.get('axle2_pos_mm',v.get('X2',0.0)))
+				rows=[('コンテナ総重量', f"{cw:.1f}", 'kg'), ('縦桁全長 L', f"{span:.1f}", 'mm'), ('連結部オフセット C', f"{coupler_off:.1f}", 'mm'), ('前オフセット a', f"{front:.1f}", 'mm'), ('後オフセット b', f"{rear:.1f}", 'mm')]
+				if ax2>0:
+					rows += [('支点位置 X1', f"{ax1:.1f}", 'mm'), ('支点位置 X2', f"{ax2:.1f}", 'mm')]
+				section('支持・荷重配置')
+				simple_table(rows)
+			else:
+				# 従来モード: 荷重・距離一覧
+				weights=cast(list[float], v.get('weights', []))
+				dists=cast(list[float], v.get('dists', []))
+				section('荷重・距離一覧')
+				rows=[(f'荷重{i+1}', f"{w:.1f}", 'kg') for i,w in enumerate(weights)] + [(f'距離{i+1}', f"{d:.1f}", 'mm') for i,d in enumerate(dists)]
+				simple_table(rows)
+				y -= 6  # 支持・荷重配置の後に間隔を追加
+			# 4) 結果サマリ
+			Mmax=cast(float,v.get('Mmax',0.0)); Zcm3=cast(float,v.get('Z_cm3',0.0)); sigma=cast(float,v.get('sigma',0.0))
+			sf_b=cast(float,v.get('sf_break',0.0)); sf_y=cast(float,v.get('sf_yield',0.0))
+			ok_b=bool(v.get('ok_break', False)); ok_y=bool(v.get('ok_yield', False))
+			section('計算結果サマリ')
+			rows_sum=[('Mmax(最大曲げモーメント)', f"{Mmax:.2f}", 'kg·cm'), ('Z(断面係数)', f"{Zcm3:.3f}", 'cm³'), ('σ(曲げ応力)', f"{sigma:.3f}", 'kg/cm²'), ('破断安全率', f"{sf_b:.2f}", '>=1.6' if sf_b else ''), ('降伏安全率', f"{sf_y:.2f}", '>=1.3' if sf_y else '')]
+			simple_table(rows_sum)
+			# 記号の意味を補足
+			c.setFont(font,8)
+			c.drawString(left, y, '記号の意味: Mmax=最大曲げモーメント, Z=断面係数, σ=曲げ応力, θb=引張強さ, θy=降伏点')
+			y -= 6
+			y -= 10  # 計算結果サマリの後の間隔を少し拡大
+			# 5) 計算式
+			section('計算式')
+			ensure_space(54)
+			c.setFont(font,8)
+			c.drawString(left, y, '・Mmax: 区間曲げモーメントの最大値')
+			y -= 9
+			if cross_type=='hbeam':
+				c.drawString(left, y, '・Z: 2I/H,  I = (B H³ - (B - tw)(H - 2tf)³) / 12')
+			else:
+				c.drawString(left, y, '・Z: (B H³ - b h³) / (6 H)')
+			y -= 9
+			c.drawString(left, y, '・σ: Mmax / Z')
+			y -= 9
+			c.drawString(left, y, '・破断安全率: θb / (2.5 × σ)')
+			y -= 9
+			c.drawString(left, y, '・降伏安全率: θy / (2.5 × σ)')
+			y -= 10
+			c.setFont(font,10)
+			c.drawString(left, y, f"総合判定: {'基準を満たす' if (ok_b and ok_y) else '基準を満たさない'}")
+			y -= 24
+			# 6) コンテナモードの場合、4点座位置表を左右縦桁別に追加
+			if mode in ('container4','container4_axles','container4_supports_inside','container'):
+				section('4点座位置 (左右縦桁それぞれ)')
+				ensure_space(55)
+				c.setFont(font,8)
+				cw=cast(float,v.get('container_weight',0.0))
+				span=cast(float,v.get('span',v.get('span_len_mm',0.0)))
+				coupler_off=cast(float,v.get('coupler_offset',0.0))
+				front=cast(float,v.get('front',v.get('front_offset_mm',0.0)))
+				rear=cast(float,v.get('rear',v.get('rear_offset_mm',0.0)))
+				# 1縦桁当たり荷重 (総重量 / 2)
+				load_per_beam = cw / 2.0
+				load_per_seat = load_per_beam / 2.0
+				# カプラ基準の位置
+				front_from_coupler = coupler_off + front
+				rear_from_coupler = coupler_off + (span - rear)
+				c.drawString(left, y, f'左側縦桁: 前座 (カプラから{front_from_coupler:.1f} mm), 後座 (カプラから{rear_from_coupler:.1f} mm) [各座荷重 {load_per_seat:.1f} kg]')
+				y -= 11
+				c.drawString(left, y, f'右側縦桁: 前座 (カプラから{front_from_coupler:.1f} mm), 後座 (カプラから{rear_from_coupler:.1f} mm) [各座荷重 {load_per_seat:.1f} kg]')
+				y -= 11
+				c.drawString(left, y, f'※ 左右縦桁合計4点座, 各座荷重合計 = {cw:.1f} kg')
+				y -= 12
+			# 保存
+			c.save()
+			try:
+				_open_saved_pdf(path)
+			except Exception:
+				pass
+			wx.MessageBox('PDFを保存し開きました。','完了',wx.ICON_INFORMATION)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力中エラー: {e}','エラー',wx.ICON_ERROR)
 
@@ -1785,6 +2085,399 @@ class FrameStrengthPanel(wx.Panel):
 
 
 
+class CouplerStrengthPanel(wx.Panel):
+	"""連結部フレーム強度計算パネル"""
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last = {}
+		
+		# メインレイアウト
+		main_sizer = wx.BoxSizer(wx.VERTICAL)
+		
+		# タイトル
+		title = wx.StaticText(self, label='連結部フレーム強度計算')
+		title_font = title.GetFont()
+		title_font.PointSize += 3
+		title_font = title_font.Bold()
+		title.SetFont(title_font)
+		main_sizer.Add(title, 0, wx.ALL, 10)
+		
+		# 入力セクション
+		input_box = wx.StaticBoxSizer(wx.VERTICAL, self, '入力条件')
+		
+		# 荷重条件
+		load_label = wx.StaticText(self, label='荷重条件')
+		load_font = load_label.GetFont().Bold()
+		load_label.SetFont(load_font)
+		input_box.Add(load_label, 0, wx.ALL, 5)
+		
+		grid1 = wx.FlexGridSizer(3, 4, 5, 10)
+		grid1.Add(wx.StaticText(self, label='トレーラ総重量'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_total_weight = wx.TextCtrl(self, value='3500', style=wx.TE_RIGHT)
+		grid1.Add(self.ct_total_weight, 0, wx.EXPAND)
+		grid1.Add(wx.StaticText(self, label='kg'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid1.Add(wx.StaticText(self, label=''), 0)
+		
+		grid1.Add(wx.StaticText(self, label='牽引負荷'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_tow_load = wx.TextCtrl(self, value='500', style=wx.TE_RIGHT)
+		grid1.Add(self.ct_tow_load, 0, wx.EXPAND)
+		grid1.Add(wx.StaticText(self, label='kg'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid1.Add(wx.StaticText(self, label='(水平牽引時)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		grid1.Add(wx.StaticText(self, label='安全率'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_safety_factor = wx.TextCtrl(self, value='2.5', style=wx.TE_RIGHT)
+		grid1.Add(self.ct_safety_factor, 0, wx.EXPAND)
+		grid1.Add(wx.StaticText(self, label=''), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid1.Add(wx.StaticText(self, label=''), 0)
+		
+		input_box.Add(grid1, 0, wx.ALL|wx.EXPAND, 5)
+		
+		# 鋼材寸法
+		dim_label = wx.StaticText(self, label='鋼材寸法 (矩形鋼管)')
+		dim_label.SetFont(load_font)
+		input_box.Add(dim_label, 0, wx.ALL, 5)
+		
+		grid2 = wx.FlexGridSizer(2, 4, 5, 10)
+		grid2.Add(wx.StaticText(self, label='外径 B'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_B = wx.TextCtrl(self, value='100', style=wx.TE_RIGHT)
+		grid2.Add(self.ct_B, 0, wx.EXPAND)
+		grid2.Add(wx.StaticText(self, label='mm'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid2.Add(wx.StaticText(self, label='(幅)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		grid2.Add(wx.StaticText(self, label='外径 H'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_H = wx.TextCtrl(self, value='100', style=wx.TE_RIGHT)
+		grid2.Add(self.ct_H, 0, wx.EXPAND)
+		grid2.Add(wx.StaticText(self, label='mm'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid2.Add(wx.StaticText(self, label='(高さ)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		input_box.Add(grid2, 0, wx.ALL|wx.EXPAND, 5)
+		
+		grid3 = wx.FlexGridSizer(2, 4, 5, 10)
+		grid3.Add(wx.StaticText(self, label='内径 b'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_b = wx.TextCtrl(self, value='90', style=wx.TE_RIGHT)
+		grid3.Add(self.ct_b, 0, wx.EXPAND)
+		grid3.Add(wx.StaticText(self, label='mm'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid3.Add(wx.StaticText(self, label='(幅)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		grid3.Add(wx.StaticText(self, label='内径 h'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_h = wx.TextCtrl(self, value='90', style=wx.TE_RIGHT)
+		grid3.Add(self.ct_h, 0, wx.EXPAND)
+		grid3.Add(wx.StaticText(self, label='mm'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid3.Add(wx.StaticText(self, label='(高さ)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		input_box.Add(grid3, 0, wx.ALL|wx.EXPAND, 5)
+		
+		# 材料強度
+		mat_label = wx.StaticText(self, label='材料強度')
+		mat_label.SetFont(load_font)
+		input_box.Add(mat_label, 0, wx.ALL, 5)
+		
+		grid4 = wx.FlexGridSizer(2, 4, 5, 10)
+		grid4.Add(wx.StaticText(self, label='引張強さ θb'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_tb = wx.TextCtrl(self, value='4100', style=wx.TE_RIGHT)
+		grid4.Add(self.ct_tb, 0, wx.EXPAND)
+		grid4.Add(wx.StaticText(self, label='kg/cm²'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid4.Add(wx.StaticText(self, label='(SS400: 4100)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		grid4.Add(wx.StaticText(self, label='降伏点 θy'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.ct_ty = wx.TextCtrl(self, value='2400', style=wx.TE_RIGHT)
+		grid4.Add(self.ct_ty, 0, wx.EXPAND)
+		grid4.Add(wx.StaticText(self, label='kg/cm²'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid4.Add(wx.StaticText(self, label='(SS400: 2400)'), 0, wx.ALIGN_CENTER_VERTICAL)
+		
+		input_box.Add(grid4, 0, wx.ALL|wx.EXPAND, 5)
+		
+		main_sizer.Add(input_box, 0, wx.ALL|wx.EXPAND, 10)
+		
+		# ボタン
+		btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		self.btn_calc = wx.Button(self, label='計算実行')
+		self.btn_export = wx.Button(self, label='PDF出力')
+		self.btn_export.Enable(False)
+		btn_sizer.Add(self.btn_calc, 0, wx.RIGHT, 10)
+		btn_sizer.Add(self.btn_export, 0)
+		main_sizer.Add(btn_sizer, 0, wx.ALL|wx.ALIGN_CENTER, 10)
+		
+		# 説明
+		note = wx.StaticText(self, label='※連結部の引張強度を計算します。牽引負荷と材料強度から安全性を判定します。')
+		note.SetForegroundColour(wx.Colour(100, 100, 100))
+		main_sizer.Add(note, 0, wx.ALL, 10)
+		
+		self.SetSizer(main_sizer)
+		
+		# イベント
+		self.btn_calc.Bind(wx.EVT_BUTTON, self.on_calc)
+		self.btn_export.Bind(wx.EVT_BUTTON, self.on_export_pdf)
+	
+	def on_calc(self, event):
+		try:
+			# 入力取得
+			total_weight = float(self.ct_total_weight.GetValue())
+			tow_load = float(self.ct_tow_load.GetValue())
+			safety_factor = float(self.ct_safety_factor.GetValue())
+			B = float(self.ct_B.GetValue())
+			H = float(self.ct_H.GetValue())
+			b = float(self.ct_b.GetValue())
+			h = float(self.ct_h.GetValue())
+			tb = float(self.ct_tb.GetValue())
+			ty = float(self.ct_ty.GetValue())
+			
+			# 断面積計算 (矩形鋼管)
+			A = (B * H - b * h) / 100.0  # mm² -> cm²
+			
+			# 引張力 (kg)
+			P = tow_load
+			
+			# 引張応力 (kg/cm²)
+			sigma = P / A if A > 0 else 0
+			
+			# 安全率
+			sf_break = tb / (safety_factor * sigma) if sigma > 0 else float('inf')
+			sf_yield = ty / (safety_factor * sigma) if sigma > 0 else float('inf')
+			
+			# 判定
+			ok_break = sf_break >= 1.0
+			ok_yield = sf_yield >= 1.0
+			
+			# 結果保存
+			self.last = {
+				'total_weight': total_weight,
+				'tow_load': tow_load,
+				'safety_factor': safety_factor,
+				'B': B, 'H': H, 'b': b, 'h': h,
+				'tb': tb, 'ty': ty,
+				'A': A,
+				'P': P,
+				'sigma': sigma,
+				'sf_break': sf_break,
+				'sf_yield': sf_yield,
+				'ok_break': ok_break,
+				'ok_yield': ok_yield
+			}
+			
+			# 結果表示
+			result_text = f"""【連結部フレーム強度計算結果】
+
+■入力条件
+トレーラ総重量: {total_weight:.1f} kg
+牽引負荷: {tow_load:.1f} kg
+安全率: {safety_factor:.1f}
+
+■鋼材寸法 (矩形鋼管)
+外径: B={B:.1f} mm × H={H:.1f} mm
+内径: b={b:.1f} mm × h={h:.1f} mm
+断面積: A={A:.2f} cm²
+
+■材料強度
+引張強さ θb: {tb:.1f} kg/cm²
+降伏点 θy: {ty:.1f} kg/cm²
+
+■計算結果
+引張力: P={P:.1f} kg
+引張応力: σ={sigma:.2f} kg/cm²
+
+破断安全率: {sf_break:.3f} {'(OK)' if ok_break else '(NG)'}
+降伏安全率: {sf_yield:.3f} {'(OK)' if ok_yield else '(NG)'}
+
+■総合判定: {'基準を満たす' if (ok_break and ok_yield) else '基準を満たさない'}
+
+※計算式:
+  断面積 A = (B×H - b×h) / 100  [cm²]
+  引張応力 σ = P / A  [kg/cm²]
+  破断安全率 = θb / (安全率 × σ)
+  降伏安全率 = θy / (安全率 × σ)
+"""
+			
+			global RESULT_WINDOW
+			if RESULT_WINDOW is None:
+				RESULT_WINDOW = ResultWindow()
+			RESULT_WINDOW.set_content('連結部強度計算結果', result_text)
+			RESULT_WINDOW.Show()
+			RESULT_WINDOW.Raise()
+			
+			self.btn_export.Enable(True)
+			
+		except ValueError as e:
+			wx.MessageBox(f'入力値エラー: {e}', 'エラー', wx.ICON_ERROR)
+		except Exception as e:
+			wx.MessageBox(f'計算エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def on_export_pdf(self, event):
+		if not self.last:
+			wx.MessageBox('先に計算を実行してください。', '情報', wx.ICON_INFORMATION)
+			return
+		
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabがインストールされていません。\npip install reportlab', 'エラー', wx.ICON_ERROR)
+			return
+		
+		dlg = wx.FileDialog(self, 'PDF保存', defaultFile='車枠強度検討書(連結部フレーム).pdf',
+							wildcard='PDF files (*.pdf)|*.pdf',
+							style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT)
+		if dlg.ShowModal() != wx.ID_OK:
+			return
+		
+		path = dlg.GetPath()
+		dlg.Destroy()
+		
+		try:
+			self._generate_pdf(path)
+			wx.MessageBox(f'PDFを保存しました:\n{path}', '完了', wx.ICON_INFORMATION)
+			self._open_saved_pdf(path)
+		except Exception as e:
+			wx.MessageBox(f'PDF生成エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def _open_saved_pdf(self, path: str):
+		try:
+			import subprocess
+			if os.name == 'nt':
+				os.startfile(path)
+			elif os.name == 'posix':
+				subprocess.call(['open', path])
+		except Exception:
+			pass
+	
+	def _generate_pdf(self, path: str):
+		from reportlab.pdfgen import canvas as pdf_canvas
+		from reportlab.lib.pagesizes import A4
+		from reportlab.pdfbase import pdfmetrics
+		from reportlab.pdfbase.ttfonts import TTFont
+		
+		# フォント設定
+		W, H = A4
+		c = pdf_canvas.Canvas(path, pagesize=A4)
+		font = 'HeiseiKakuGo-W5'
+		# 日本語フォント登録試行
+		for f in [r'C:\Windows\Fonts\msgothic.ttc', r'C:\Windows\Fonts\msmincho.ttc']:
+			if os.path.exists(f):
+				try:
+					pdfmetrics.registerFont(TTFont('JPFrame', f))
+					font = 'JPFrame'
+					break
+				except Exception:
+					pass
+		
+		v = self.last
+		left = 40; right = 40; top = 40; bottom = 50
+		y = H - top
+		
+		# タイトル
+		c.setFont(font, 13)
+		c.drawString(left, y, '連結部フレーム強度計算書')
+		y -= 18
+		c.setFont(font, 9)
+		
+		# 断面図生成
+		cross_diagram = ''
+		try:
+			cross_diagram = create_cross_section_diagram_png(
+				v['B'], v['H'], v['b'], v['h'], 0, 0, 'rect', width=250, height=250
+			)
+		except Exception:
+			pass
+		
+		# ヘルパー関数
+		def ensure_space(h_needed):
+			nonlocal y
+			if y - h_needed < bottom:
+				c.showPage()
+				c.setFont(font, 9)
+				y = H - top
+		
+		def section(title: str, gap: int=8):
+			nonlocal y
+			ensure_space(20)
+			c.setFont(font, 10)
+			c.drawString(left, y, title)
+			y -= gap + 4
+			c.setFont(font, 9)
+		
+		def simple_table(rows: list[tuple[str,str,str]], colw=(160,95,65), row_h=18):
+			nonlocal y
+			Wtot = sum(colw); Ht = row_h * len(rows)
+			ensure_space(Ht + 8)
+			c.rect(left, y - Ht, Wtot, Ht)
+			for i in range(1, len(rows)):
+				c.line(left, y - row_h * i, left + Wtot, y - row_h * i)
+			cx = left
+			for wcol in colw[:-1]:
+				cx += wcol
+				c.line(cx, y, cx, y - Ht)
+			for r, (lab, val, unit) in enumerate(rows):
+				cy = y - row_h * (r + 1) + 7
+				c.drawString(left + 4, cy, lab)
+				c.drawRightString(left + colw[0] + colw[1] - 6, cy, val)
+				c.drawString(left + colw[0] + colw[1] + 4, cy, unit)
+			y -= Ht + 12
+		
+		# 入力条件
+		section('入力条件')
+		simple_table([
+			('トレーラ総重量', f"{v['total_weight']:.1f}", 'kg'),
+			('牽引負荷', f"{v['tow_load']:.1f}", 'kg'),
+			('安全率', f"{v['safety_factor']:.1f}", ''),
+		])		# 鋼材寸法
+		section('鋼材寸法 (矩形鋼管)')
+		simple_table([
+			('外径 B', f"{v['B']:.1f}", 'mm'),
+			('外径 H', f"{v['H']:.1f}", 'mm'),
+			('内径 b', f"{v['b']:.1f}", 'mm'),
+			('内径 h', f"{v['h']:.1f}", 'mm'),
+			('断面積 A', f"{v['A']:.2f}", 'cm²'),
+		])
+		
+		# 断面図を挿入
+		if cross_diagram:
+			try:
+				section('断面図')
+				ensure_space(160)
+				img_w = 150; img_h = 150
+				c.drawImage(cross_diagram, left, y - img_h, width=img_w, height=img_h, 
+						   preserveAspectRatio=True, mask='auto')
+				y -= img_h + 10
+			except Exception:
+				pass
+		
+		# 材料強度
+		section('材料強度')
+		simple_table([
+			('引張強さ θb', f"{v['tb']:.1f}", 'kg/cm²'),
+			('降伏点 θy', f"{v['ty']:.1f}", 'kg/cm²'),
+		])
+		
+		# 計算結果
+		section('計算結果')
+		simple_table([
+			('引張力 P', f"{v['P']:.1f}", 'kg'),
+			('引張応力 σ', f"{v['sigma']:.2f}", 'kg/cm²'),
+			('破断安全率', f"{v['sf_break']:.3f}", '(OK)' if v['ok_break'] else '(NG)'),
+			('降伏安全率', f"{v['sf_yield']:.3f}", '(OK)' if v['ok_yield'] else '(NG)'),
+		])
+		
+		# 計算式
+		section('計算式')
+		ensure_space(70)
+		c.setFont(font, 8)
+		c.drawString(left, y, '・断面積: A = (B×H - b×h) / 100  [cm²]')
+		y -= 11
+		c.drawString(left, y, '・引張応力: σ = P / A  [kg/cm²]')
+		y -= 11
+		c.drawString(left, y, '・破断安全率: θb / (安全率 × σ)')
+		y -= 11
+		c.drawString(left, y, '・降伏安全率: θy / (安全率 × σ)')
+		y -= 14
+		c.setFont(font, 10)
+		
+		# 総合判定
+		ok_b = v['ok_break']
+		ok_y = v['ok_yield']
+		c.setFont(font, 10)
+		c.drawString(left, y, f"総合判定: {'基準を満たす' if (ok_b and ok_y) else '基準を満たさない'}")
+		y -= 18
+		
+		c.save()
+
+
 class MainFrame(wx.Frame):
 	def __init__(self):
 		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(960,960))
@@ -1796,6 +2489,7 @@ class MainFrame(wx.Frame):
 		nb.AddPage(TurningRadiusPanel(nb),'最小回転半径計算書')
 		nb.AddPage(AxleStrengthPanel(nb),'車軸強度計算書')
 		nb.AddPage(FrameStrengthPanel(nb),'車枠強度計算書')
+		nb.AddPage(CouplerStrengthPanel(nb),'連結部強度計算書')
 		self.Centre()
 
 def main():
