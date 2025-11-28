@@ -24,133 +24,38 @@ from lib import (
 RESULT_WINDOW = None
 FRAME_GRAPH_WINDOW = None
 
+class FrameGraphWindow(wx.Frame):
+	def __init__(self):
+		super().__init__(None, title='車枠強度グラフ', size=wx.Size(960, 420))
+		self.bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(960, 360)))
+		sizer = wx.BoxSizer(wx.VERTICAL)
+		sizer.Add(self.bmp, 1, wx.EXPAND|wx.ALL, 6)
+		self.SetSizer(sizer)
+	def set_data(self, data: dict):
+		try:
+			path = create_frame_diagram_png(data)
+			if path:
+				b = wx.Bitmap(path, wx.BITMAP_TYPE_PNG)
+				self.bmp.SetBitmap(wx.BitmapBundle.FromBitmap(b))
+				self.Layout()
+		except Exception:
+			pass
+
 class ResultWindow(wx.Frame):
 	def __init__(self):
 		super().__init__(None, title='計算結果', size=wx.Size(560, 620))
 		self.txt = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_READONLY|wx.VSCROLL)
-		self.btn_copy = wx.Button(self, label='コピー')
-		self.btn_close = wx.Button(self, label='閉じる')
-		btn_row = wx.BoxSizer(wx.HORIZONTAL)
-		btn_row.Add(self.btn_copy, 0, wx.RIGHT, 6)
-		btn_row.Add(self.btn_close, 0)
-		s = wx.BoxSizer(wx.VERTICAL)
-		s.Add(btn_row, 0, wx.ALL|wx.ALIGN_RIGHT, 4)
-		s.Add(self.txt, 1, wx.EXPAND|wx.ALL, 4)
-		self.SetSizer(s)
-		self.btn_copy.Bind(wx.EVT_BUTTON, self._on_copy)
-		self.btn_close.Bind(wx.EVT_BUTTON, self._on_close_btn)
-		self.Bind(wx.EVT_CLOSE, self._on_close_frame)
-
-	def set_content(self, title: str, text: str):
-		self.SetTitle(title)
+		sizer = wx.BoxSizer(wx.VERTICAL)
+		sizer.Add(self.txt, 1, wx.EXPAND|wx.ALL, 4)
+		self.SetSizer(sizer)
+	def set_text(self, text: str):
 		self.txt.SetValue(text)
-		# 常に末尾を表示
-		self.txt.ShowPosition(self.txt.GetLastPosition())
-
-	def _on_copy(self, _):
-		if wx.TheClipboard.Open():
-			wx.TheClipboard.SetData(wx.TextDataObject(self.txt.GetValue()))
-			wx.TheClipboard.Close()
-			wx.MessageBox('結果をコピーしました。', 'コピー', wx.ICON_INFORMATION)
-
-	def _on_close_btn(self, _):
-		self.Close()
-
-	def _on_close_frame(self, event):
-		global RESULT_WINDOW
-		RESULT_WINDOW = None
-		event.Skip()
-
-class FrameGraphWindow(wx.Frame):
-	"""車枠強度 せん断力・曲げモーメント図専用ウィンドウ"""
-	def __init__(self):
-		super().__init__(None, title='車枠強度 図', size=wx.Size(780, 520))
-		self.panel = wx.Panel(self)
-		self.panel.Bind(wx.EVT_PAINT, self._on_paint)
-		self.panel.Bind(wx.EVT_SIZE, lambda e: (e.Skip(), self.panel.Refresh()))
-		self.data = None  # {'dists':[], 'shear_list':[], 'moment_list':[], 'Mmax': ...}
-		self.status = wx.StatusBar(self)
-		self.SetStatusBar(self.status)
-
-	def set_data(self, data: dict):
-		self.data = data
-		self.status.SetStatusText(f"Mmax={data.get('Mmax','-')}  Z={data.get('Z_cm3','-')}cm³  σ={data.get('sigma','-')}kg/cm²")
-		self.panel.Refresh()
-
-	def _on_paint(self, event):
-		dc = wx.BufferedPaintDC(self.panel)
-		w, h = self.panel.GetClientSize()
-		dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
-		dc.Clear()
-		margin = 50
-		if not self.data:
-			dc.SetTextForeground(wx.Colour(70,70,70))
-			dc.DrawText('車枠強度計算後に図を表示します。', 20, 20)
-			return
-		dists = self.data['dists']
-		shear_vals = self.data['shear_list']
-		moment_vals = self.data['moment_list']
-		positions = [0]
-		for d in dists: positions.append(positions[-1] + d)
-		L = positions[-1]
-		if L <= 0:
-			dc.DrawText('距離が0です', 10, 10); return
-		x_scale = (w - 2*margin) / float(L)
-		max_shear = max(abs(v) for v in shear_vals) if shear_vals else 1
-		max_moment = max(abs(v) for v in moment_vals) if moment_vals else 1
-		# レイアウト: せん断 (上 60%), モーメント (下 40%)
-		shear_top = margin
-		shear_bottom = int(margin + (h - 2*margin) * 0.60)
-		moment_top = shear_bottom + 18
-		moment_bottom = h - margin
-		dc.SetPen(wx.Pen(wx.Colour(0,0,0),1))
-		dc.DrawLine(margin, shear_bottom, w-margin, shear_bottom)
-		dc.DrawLine(margin, moment_bottom, w-margin, moment_bottom)
-		dc.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-		dc.DrawText('せん断力 (kg)', margin, shear_top-22)
-		dc.DrawText('曲げモーメント (kg·cm)', margin, moment_top-18)
-		# 背景グリッド (せん断)
-		grid_pen = wx.Pen(wx.Colour(225,225,225),1,style=wx.PENSTYLE_SHORT_DASH)
-		dc.SetPen(grid_pen)
-		for g in range(1,5):
-			gy = int(shear_top + (shear_bottom - shear_top) * g / 5.0)
-			dc.DrawLine(margin, gy, w-margin, gy)
-		# せん断力プロット (ステップ線: 赤)
-		dc.SetPen(wx.Pen(wx.Colour(220,0,0),2))
-		prev_x = margin
-		prev_y = int(shear_bottom - (shear_vals[0]/max_shear) * (shear_bottom - shear_top))
-		dc.DrawCircle(prev_x, prev_y, 2)
-		for i, val in enumerate(shear_vals):
-			x = int(margin + positions[i] * x_scale)
-			y = int(shear_bottom - (val/max_shear) * (shear_bottom - shear_top))
-			if i > 0:
-				dc.DrawLine(prev_x, prev_y, x, prev_y)
-				dc.DrawLine(x, prev_y, x, y)
-			dc.DrawCircle(x, y, 2)
-			prev_x, prev_y = x, y
-		dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-		for p in positions:
-			x = int(margin + p * x_scale)
-			dc.DrawLine(x, shear_bottom, x, shear_bottom+4)
-			dc.DrawText(str(int(p)), x-10, shear_bottom+6)
-		# 曲げモーメント (棒: 青)
-		dc.SetPen(wx.Pen(wx.Colour(0,80,200),2))
-		for i, mv in enumerate(moment_vals):
-			x = int(margin + positions[i+1] * x_scale)
-			y = int(moment_bottom - (mv/max_moment) * (moment_bottom - moment_top))
-			dc.DrawLine(x, moment_bottom, x, y)
-			dc.DrawCircle(x, y, 2)
-		for p in positions:
-			x = int(margin + p * x_scale)
-			dc.DrawLine(x, moment_bottom, x, moment_bottom+4)
-			dc.DrawText(str(int(p)), x-10, moment_bottom+6)
-		dc.SetTextForeground(wx.Colour(0,0,0))
-		dc.DrawText(f"Mmax={self.data['Mmax']:.1f}", w-margin-140, moment_top)
-		dc.DrawText(f"Smax={max_shear:.1f}", w-margin-140, shear_top)
-		dc.SetPen(wx.Pen(wx.Colour(185,185,185),1,style=wx.PENSTYLE_SHORT_DASH))
-		dc.DrawRectangle(margin, shear_top, w-2*margin, shear_bottom - shear_top)
-		dc.DrawRectangle(margin, moment_top, w-2*margin, moment_bottom - moment_top)
-		dc.DrawText('赤:せん断力ステップ / 青:区間終端曲げモーメント', margin, h-24)
+	def set_content(self, title: str, text: str):
+		try:
+			self.SetTitle(title)
+		except Exception:
+			pass
+		self.txt.SetValue(text)
 
 def show_frame_graph(data: dict):
 	"""車枠強度グラフを別ウィンドウに表示/更新"""
@@ -1512,6 +1417,258 @@ class TurningRadiusPanel(wx.Panel):
 			wx.MessageBox(f'PDF出力中エラー: {e}','エラー',wx.ICON_ERROR)
 
 
+class SafetyChainPanel(wx.Panel):
+	"""安全チェーン強度計算書"""
+	def __init__(self,parent):
+		super().__init__(parent)
+		root = wx.BoxSizer(wx.HORIZONTAL)
+		# 図の読み込み（既定パスを順に探索）
+		# StaticBitmap は生 Bitmap を設定（互換性重視）
+		self.img = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(220,220)))
+		self._chain_path = self._find_chain_image()
+		if self._chain_path and os.path.exists(self._chain_path):
+			try:
+				bmp = wx.Bitmap(self._chain_path, wx.BITMAP_TYPE_ANY)
+				self.img.SetBitmap(wx.BitmapBundle.FromBitmap(bmp))
+			except Exception as e:
+				wx.MessageBox(f'画像読込エラー: {e}','エラー',wx.ICON_ERROR)
+		else:
+			wx.MessageBox('チェーン画像が見つかりませんでした。画像選択で指定してください。','案内',wx.ICON_INFORMATION)
+		root.Add(self.img, 0, wx.ALL, 10)
+		fg = wx.FlexGridSizer(0,3,6,8)
+		self.inputs = {}
+		def add_row(label, key, default=''):
+			fg.Add(wx.StaticText(self,label=label))
+			ctrl = wx.TextCtrl(self,value=str(default),style=wx.TE_RIGHT)
+			self.inputs[key]=ctrl
+			fg.Add(ctrl,0,wx.EXPAND)
+			fg.Add(wx.StaticText(self,label=''))
+		# 材質名（自由入力）
+		fg.Add(wx.StaticText(self,label='材質 名称'))
+		self.material = wx.TextCtrl(self,value='SUS304')
+		fg.Add(self.material,0,wx.EXPAND)
+		fg.Add(wx.StaticText(self,label=''))
+		add_row('チェーン1リンクの長さ L (mm)L','120')
+		add_row('チェーン1リンクの幅 b (mm)','b','60')
+		add_row('チェーン素材の線径 d (mm)','d','10')
+		add_row('被牽引自動車の車両総重量 (kg) W','W','1500')
+		add_row('材質 引張強度 ob (kg/mm²)','ob','40')
+		btn_calc = wx.Button(self,label='計算')
+		btn_pdf  = wx.Button(self,label='PDF出力')
+		btn_img  = wx.Button(self,label='画像選択')
+		btn_gen  = wx.Button(self,label='図生成')
+		fg.Add(btn_calc); fg.Add(btn_pdf); fg.Add(btn_img); fg.Add(btn_gen); fg.AddGrowableCol(1,1)
+		root.Add(fg, 1, wx.ALL|wx.EXPAND, 10)
+		self.SetSizer(root)
+		btn_calc.Bind(wx.EVT_BUTTON, self.on_calc)
+		btn_pdf.Bind(wx.EVT_BUTTON, self.on_export_pdf)
+		btn_img.Bind(wx.EVT_BUTTON, self.on_select_image)
+		btn_gen.Bind(wx.EVT_BUTTON, self.on_generate_chain_image)
+		self.last=None
+	def on_generate_chain_image(self,_):
+		try:
+			from PIL import Image, ImageDraw
+		except Exception:
+			wx.MessageBox('Pillow が未インストールです。requirements.txt に pillow を追加してください。','エラー',wx.ICON_ERROR)
+			return
+		# 画像サイズと配色
+		W,H = 360, 360
+		bg = (255,255,255)
+		line = (0,0,0)
+		accent = (160,160,160)
+		img = Image.new('RGB',(W,H),bg)
+		draw = ImageDraw.Draw(img)
+		# チェーンリンクのパラメータ（単一リンクを太めに描画）
+		links = 1
+		link_w = 160
+		link_h = 80
+		gap = 22
+		x0 = 40
+		y0 = H//2 - link_h//2
+		stroke = 12
+		for i in range(links):
+			x = x0 + i*(link_w - gap)
+			# 外周楕円（グレー塗り + 黒縁）
+			draw.rounded_rectangle([x,y0,x+link_w,y0+link_h], radius=link_h//2, outline=line, fill=(180,180,180), width=2)
+			# 内側（中空に見せるため白で塗る）
+			inset = 18
+			draw.rounded_rectangle([x+inset,y0+inset,x+link_w-inset,y0+link_h-inset], radius=(link_h//2-inset), outline=line, fill=bg, width=2)
+		# フック図は不要（単一リンクのみ表示）
+
+		# 寸法注記（添付見本に準拠: L, b, d）
+		# L: 縦寸法（リンク外形の上下矢印 + 右側太め補助線 + ラベル枠）
+		L_x = x0 + link_w//2
+		L_top = y0 - 34
+		L_bot = y0 + link_h + 34
+		# 矢印線
+		draw.line([(L_x, L_top), (L_x, y0)], fill=line, width=3)
+		draw.polygon([(L_x-7, L_top+12), (L_x+7, L_top+12), (L_x, L_top)], fill=line)
+		draw.line([(L_x, y0+link_h), (L_x, L_bot)], fill=line, width=3)
+		draw.polygon([(L_x-7, L_bot-12), (L_x+7, L_bot-12), (L_x, L_bot)], fill=line)
+		# 補助寸法線（右側太め）
+		draw.line([(L_x+30, y0-10), (L_x+30, y0+link_h+10)], fill=(0,0,0), width=2)
+		# ラベル枠付きで強調
+		label_w, label_h = 22, 18
+		lx = L_x + 36; ly = (L_top+L_bot)//2 - label_h//2
+		draw.rectangle([lx, ly, lx+label_w, ly+label_h], outline=line, fill=(255,255,255))
+		draw.text((lx+6, ly+2), 'L', fill=line)
+
+		# b: 横寸法（リンク外形の左右矢印 + 下側太め補助線 + ラベル枠）
+		b_y = y0 + link_h//2
+		b_left = x0 - 34
+		b_right = x0 + link_w + 34
+		# 左右矢印
+		draw.line([(b_left, b_y), (x0, b_y)], fill=line, width=3)
+		draw.polygon([(b_left+14, b_y-6), (b_left+14, b_y+6), (b_left, b_y)], fill=line)
+		draw.line([(x0+link_w, b_y), (b_right, b_y)], fill=line, width=3)
+		draw.polygon([(b_right-14, b_y-6), (b_right-14, b_y+6), (b_right, b_y)], fill=line)
+		# 補助寸法線（下側太め）
+		draw.line([(x0-8, b_y+30), (x0+link_w+8, b_y+30)], fill=(0,0,0), width=2)
+		# ラベル枠付きで強調
+		bx = (b_left+b_right)//2 - 14; by = b_y - 26
+		draw.rectangle([bx, by, bx+24, by+18], outline=line, fill=(255,255,255))
+		draw.text((bx+6, by+2), 'b', fill=line)
+
+		# d: 線径（左側に短い矢印で厚みを示す）
+		d_mid_y = y0 + link_h//2
+		d_base_x = x0 + inset//2
+		d_len = 28
+		draw.line([(d_base_x - d_len, d_mid_y), (d_base_x, d_mid_y)], fill=line, width=2)
+		draw.polygon([(d_base_x - d_len + 12, d_mid_y-6), (d_base_x - d_len + 12, d_mid_y+6), (d_base_x - d_len, d_mid_y)], fill=line)
+		draw.text((d_base_x - d_len - 14, d_mid_y - 22), 'd', fill=line)
+		# 保存先
+		out_path = os.path.join(os.getcwd(),'chain.png')
+		img.save(out_path, format='PNG')
+		self._chain_path = out_path
+		try:
+			bmp = wx.Bitmap(self._chain_path, wx.BITMAP_TYPE_ANY)
+			self.img.SetBitmap(wx.BitmapBundle.FromBitmap(bmp))
+			self.Layout()
+		except Exception:
+			pass
+		wx.MessageBox(f'チェーン図を生成し保存しました:\n{out_path}','完了',wx.ICON_INFORMATION)
+
+	def _find_chain_image(self):
+		candidates = [
+			'chain.png',
+			os.path.join('export','trailer_app','lib','chain.png'),
+			os.path.join('lib','chain.png'),
+			os.path.join('scripts','chain.png'),
+		]
+		for p in candidates:
+			if os.path.exists(p):
+				return p
+		return None
+
+	def on_select_image(self,_):
+		with wx.FileDialog(self,message='チェーン画像を選択',wildcard='Image files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg',style=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST) as dlg:
+			if dlg.ShowModal()!=wx.ID_OK:
+				return
+			self._chain_path = dlg.GetPath()
+			try:
+				bmp = wx.Bitmap(self._chain_path, wx.BITMAP_TYPE_ANY)
+				self.img.SetBitmap(wx.BitmapBundle.FromBitmap(bmp))
+				self.Layout()
+			except Exception as e:
+				wx.MessageBox(f'画像読み込みエラー: {e}','エラー',wx.ICON_ERROR)
+
+	def _vals(self):
+		def f(ctrl):
+			try:
+				return float(ctrl.GetValue())
+			except Exception:
+				return 0.0
+		return {k: f(v) for k,v in self.inputs.items()}
+
+	def on_calc(self,_):
+		v = self._vals()
+		import math
+		A = math.pi*(v['d']/2.0)**2
+		W_per = v['W']/2.0
+		omax = v['W']/A if A>0 else 0.0
+		omax2 = W_per/A if A>0 else 0.0
+		fb = (v['ob']/omax2) if omax2>0 else 0.0
+		# 2倍荷重に対する判定（総荷重 2W → 1本当たり W → 応力 W/A = omax）
+		fb2 = (v['ob']/omax) if omax>0 else 0.0
+		judge = '適合 (2Wに耐える)' if fb2 >= 1.0 else '不適合 (不足)'
+		self.last = dict(A=A, omax=omax, omax2=omax2, fb=fb, fb2=fb2, judge=judge, material=self.material.GetValue(), **v)
+		wx.MessageBox(
+			f"材質: {self.material.GetValue()}\nA={A:.2f} mm^2\nσ(総)={omax:.3f} kg/mm2\nσ(1本)={omax2:.3f} kg/mm2\n安全率(通常) fb={fb:.2f}\n安全率(2W) fb2={fb2:.2f}\n判定: {judge}",
+			'計算結果', wx.ICON_INFORMATION)
+
+	def on_export_pdf(self,_):
+		if self.last is None:
+			wx.MessageBox('先に計算を実行してください。','PDF出力',wx.ICON_INFORMATION); return
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。','PDF出力不可',wx.ICON_ERROR); return
+		with wx.FileDialog(self,message='PDF保存',wildcard='PDF files (*.pdf)|*.pdf',style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT,defaultFile='安全チェーン強度計算書.pdf') as dlg:
+			if dlg.ShowModal()!=wx.ID_OK: return
+			path = dlg.GetPath()
+			try:
+				c = _pdf_canvas.Canvas(path, pagesize=_A4)
+				W,H = _A4
+				font='Helvetica'
+				for f in ['C:/Windows/Fonts/msgothic.ttc', 'C:/Windows/Fonts/meiryo.ttc', 'C:/Windows/Fonts/yugothic.ttf', 'ipaexg.ttf','ipaexm.ttf','fonts/ipaexg.ttf','fonts/ipaexm.ttf']:
+					if os.path.exists(f):
+						try:
+							_pdfmetrics.registerFont(_TTFont('JPChain',f)); font='JPChain'; break
+						except Exception: pass
+				left=40; y=H-40
+				c.setFont(font,14); c.drawString(left,y,'安全チェーン強度計算書'); y-=24; c.setFont(font,9)
+				# 図（中央寄せで拡大）
+				img_path = None
+				if self._chain_path and os.path.exists(self._chain_path):
+					img_path = self._chain_path
+				elif os.path.exists('chain.png'):
+					img_path = 'chain.png'
+				if img_path:
+					try:
+						img_w=360; img_h=200
+						x = (W - img_w) / 2
+						c.drawImage(img_path, x, y-img_h, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+						y -= img_h + 10
+					except Exception:
+						pass
+				v = self.last
+				def table(x,y,cw,rh,rows):
+					c.rect(x,y-rh*len(rows),sum(cw),rh*len(rows))
+					cx=x
+					for w in cw:
+						c.line(cx,y,cx,y-rh*len(rows)); cx+=w
+					c.line(cx,y,cx,y-rh*len(rows))
+					for i in range(1,len(rows)):
+						c.line(x,y-rh*i,x+sum(cw),y-rh*i)
+					for r_i,row in enumerate(rows):
+						tx=x+4; ty=y-rh*r_i-12
+						for j,cell in enumerate(row):
+							c.drawString(tx,ty,str(cell)); tx+=cw[j]
+					return y-rh*len(rows)-10
+				y=table(left,y,[180,120,120],18,[
+					['項目','値','単位'],
+					['材質 名称', str(v.get('material','')), ''],
+					['チェーン1リンクの長さ L', f"{v.get('L',0.0):.1f}", 'mm'],
+					['チェーン1リンクの幅 b', f"{v.get('b',0.0):.1f}", 'mm'],
+					['チェーン素材の線径 d', f"{v.get('d',0.0):.1f}", 'mm'],
+					['被牽引自動車の車両総重量 W', f"{v.get('W',0.0):.1f}", 'kg'],
+					['材質 引張強度 ob', f"{v.get('ob',0.0):.2f}", 'kg/mm2'],
+				])
+				y=table(left,y,[180,120,120],18,[
+					['計算結果','値','単位'],
+					['断面積 A = π(d/2)^2', f"{v.get('A',0.0):.2f}", 'mm2'],
+					['引張応力(総) omax = W/A', f"{v.get('omax',0.0):.3f}", 'kg/mm2'],
+					['1本当たり omax2 = (W/2)/A', f"{v.get('omax2',0.0):.3f}", 'kg/mm2'],
+					['安全率 fb = ob/omax2', f"{v.get('fb',0.0):.2f}", ''],
+					['安全率(2W) fb2 = ob/omax', f"{v.get('fb2',0.0):.2f}", ''],
+					['判定 (2W耐力)', str(v.get('judge','')), ''],
+				])
+				c.setFont(font,10); c.drawString(left,y,'計算式'); c.setFont(font,8); y-=18
+				c.drawString(left,y,'A = π(d/2)^2'); y-=12
+				c.drawString(left,y,'omax = W / A,  omax2 = (W/2) / A'); y-=12
+				c.drawString(left,y,'fb = ob / omax2'); y-=12
+				c.showPage(); c.save(); _open_saved_pdf(path); wx.MessageBox('PDFを保存しました。','完了',wx.ICON_INFORMATION)
+			except Exception as e:
+				wx.MessageBox(f'PDF出力中エラー: {e}','エラー',wx.ICON_ERROR)
+
 class AxleStrengthPanel(wx.Panel):
 	def __init__(self, parent):
 		super().__init__(parent)
@@ -2547,8 +2704,9 @@ class TwoAxleLeafSpringPanel(wx.Panel):
 					for j,cell in enumerate(row): c.drawString(cx,cy,str(cell)); cx+=cw[j]
 				return y-Ht-10
 			cw=[120,120,120]
-			y=table(left,y,[140,120,120],16,[
+			y=table(left,y,[180,120,120],18,[
 				['項目','値','単位'],
+				['材質 名称', v.get('material',''), ''],
 				['支点(前軸) Xf', f"{v['Xf']:.1f}", 'mm'],
 				['支点(後軸) Xr', f"{v['Xr']:.1f}", 'mm'],
 				['荷台開始', f"{v['bed_s']:.1f}", 'mm'],
@@ -2556,12 +2714,14 @@ class TwoAxleLeafSpringPanel(wx.Panel):
 				['荷台中央 Xp', f"{v['Xp']:.1f}", 'mm'],
 				['装備品位置 Xe', f"{v['Xe']:.1f}", 'mm'],
 			])
-			y=table(left,y,[140,120,120],16,[
+			y=table(left,y,[180,120,120],18,[
 				['荷重','値','単位'],
 				['前重量 Wf', f"{v['Wf']:.1f}", 'kg'],
 				['後重量 Wr', f"{v['Wr']:.1f}", 'kg'],
 				['最大積載量 Wp', f"{v['Wp']:.1f}", 'kg'],
 				['装備品 We', f"{v['We']:.1f}", 'kg'],
+				['安全率(2W) fb2 = ob/omax', f"{v['fb2']:.2f}", ''],
+				['判定 (2W耐力)', v.get('judge',''), ''],
 				['総重量 Wtot', f"{v['Wtot']:.1f}", 'kg'],
 			])
 			y=table(left,y,[140,120,120],16,[
@@ -2580,7 +2740,7 @@ class TwoAxleLeafSpringPanel(wx.Panel):
 
 class MainFrame(wx.Frame):
 	def __init__(self):
-		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1020,960))
+		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1200,960))
 		nb=wx.Notebook(self)
 		nb.AddPage(WeightCalcPanel(nb),'重量計算書')
 		#nb.AddPage(CarCalcPanel(nb),'改造審査')
@@ -2591,6 +2751,7 @@ class MainFrame(wx.Frame):
 		nb.AddPage(FrameStrengthPanel(nb),'車枠強度計算書')
 		nb.AddPage(CouplerStrengthPanel(nb),'連結部強度計算書')
 		nb.AddPage(TwoAxleLeafSpringPanel(nb),'2軸式板ばね重量分布計算')
+		nb.AddPage(SafetyChainPanel(nb),'安全チェーン強度計算書')
 		self.Centre()
 
 def main():
