@@ -5523,6 +5523,15 @@ class Form2Panel(wx.Panel):
 class MainFrame(wx.Frame):
 	def __init__(self):
 		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1100,1000))
+		
+		# アイコン設定
+		icon_path = 'app_icon.ico'
+		if os.path.exists(icon_path):
+			try:
+				self.SetIcon(wx.Icon(icon_path, wx.BITMAP_TYPE_ICO))
+			except Exception as e:
+				print(f"アイコン読み込みエラー: {e}")
+		
 		self.nb=wx.Notebook(self, style=wx.NB_MULTILINE)
 		self.panels = [
 			('重量計算', WeightCalcPanel(self.nb)),
