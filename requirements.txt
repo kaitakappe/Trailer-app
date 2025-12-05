@@ -1,3 +1,4 @@
 # App dependencies for local development
 reportlab>=3.6.0
 wxPython>=4.2.1
+PyPDF2>=3.0.0

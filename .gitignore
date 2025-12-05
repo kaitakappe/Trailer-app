@@ -1,4 +1,6 @@
-﻿# Python bytecode
+﻿# Ignore generated outputs
+output/
+# Python bytecode
 __pycache__/
 *.py[cod]
 *.class
