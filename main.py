@@ -1816,10 +1816,10 @@ class TurningRadiusPanel(wx.Panel):
 		tractor_box = wx.StaticBox(self, label='(1) トラクタ諸元')
 		tractor_s = wx.StaticBoxSizer(tractor_box, wx.VERTICAL)
 		self.L1 = self._add(tractor_s, '軸距 L1 [m]', '', '3.450')
-		self.i1_input = self._add(tractor_s, '前輪給距の 1/2 値 I1 [m]', '', '1.030')
+		self.i1_input = self._add(tractor_s, '前輪輪距の 1/2 値 I1 [m]', '', '1.030')
 		# 派生値 I1 (Trf1/2) を表示用に追加（読み取り専用, m単位）
 		row1 = wx.BoxSizer(wx.HORIZONTAL)
-		row1.Add(wx.StaticText(self, label='前輪給距の 1/2 値 I1 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
+		row1.Add(wx.StaticText(self, label='前輪輪距の 1/2 値 I1 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
 		self.i1_disp = wx.TextCtrl(self, value='', style=wx.TE_RIGHT | wx.TE_READONLY)
 		self.i1_disp.SetHint('1.030')
 		row1.Add(self.i1_disp, 0)
@@ -1828,10 +1828,10 @@ class TurningRadiusPanel(wx.Panel):
 		trailer_box = wx.StaticBox(self, label='(2) トレーラ諸元')
 		trailer_s = wx.StaticBoxSizer(trailer_box, wx.VERTICAL)
 		self.L2 = self._add(trailer_s, '軸距 L2 [m]', '', '8.870')
-		self.i2_input = self._add(trailer_s, '後輪給距の 1/2 値 I2 [m]', '', '0.930')
+		self.i2_input = self._add(trailer_s, '後輪輪距の 1/2 値 I2 [m]', '', '0.930')
 		# 派生値 I2 (Trf2/2) を表示用に追加（読み取り専用, m単位）
 		row2 = wx.BoxSizer(wx.HORIZONTAL)
-		row2.Add(wx.StaticText(self, label='後輪給距の 1/2 値 I2 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
+		row2.Add(wx.StaticText(self, label='後輪輪距の 1/2 値 I2 [m]'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 6)
 		self.i2_disp = wx.TextCtrl(self, value='', style=wx.TE_RIGHT | wx.TE_READONLY)
 		self.i2_disp.SetHint('0.930')
 		row2.Add(self.i2_disp, 0)
@@ -1979,7 +1979,7 @@ class TurningRadiusPanel(wx.Panel):
 			left_bottom=table(left_x,top_y,'(1) トラクタ諸元',[
 				['最小回転半径 R', f"{R:.3f}", 'm'],
 				['軸距 L1', f"{L1:.3f}", 'm'],
-				['前輪給距の 1/2 値 I1', f"{I1:.3f}", 'm'],
+				['前輪輪距の 1/2 値 I1', f"{I1:.3f}", 'm'],
 				['カプラオフセット S', f"{S:.3f}", 'm'],
 			], colw)
 			# 右表は用紙幅から右マージン40ptと表幅を差し引いた位置に配置（はみ出し防止）
@@ -1990,7 +1990,7 @@ class TurningRadiusPanel(wx.Panel):
 				right_x = left_x + width + 20
 			right_bottom=table(right_x,top_y,'(2) トレーラ諸元',[
 				['軸距 L2', f"{L2:.3f}", 'm'],
-				['後輪給距の 1/2 値 I2', f"{I2:.3f}", 'm'],
+				['後輪輪距の 1/2 値 I2', f"{I2:.3f}", 'm'],
 			], colw)
 			# 式展開（さらに下げて図・諸元との余白を確保）
 			y=min(left_bottom,right_bottom)-30
@@ -2096,7 +2096,7 @@ class TurningRadiusPanel(wx.Panel):
 			left_bottom=table(left_x,top_y,'(1) トラクタ諸元',[
 				['最小回転半径 R', f"{R:.3f}", 'm'],
 				['軸距 L1', f"{L1:.3f}", 'm'],
-				['前輪給距の 1/2 値 I1', f"{I1:.3f}", 'm'],
+				['前輪輪距の 1/2 値 I1', f"{I1:.3f}", 'm'],
 				['カプラオフセット S', f"{S:.3f}", 'm'],
 			], colw)
 			width=sum(colw)
@@ -2105,7 +2105,7 @@ class TurningRadiusPanel(wx.Panel):
 				right_x = left_x + width + 20
 			right_bottom=table(right_x,top_y,'(2) トレーラ諸元',[
 				['軸距 L2', f"{L2:.3f}", 'm'],
-				['後輪給距の 1/2 値 I2', f"{I2:.3f}", 'm'],
+				['後輪輪距の 1/2 値 I2', f"{I2:.3f}", 'm'],
 			], colw)
 			y=min(left_bottom,right_bottom)-30
 			if y < 140:
