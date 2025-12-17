@@ -1,4 +1,4 @@
-# 車両関連計算ライブラリパッケージ
+﻿# 車両関連計算ライブラリパッケージ
 from .weight_calc import compute_weight_metrics
 from .car_mod_calc import calc_braking_force, check_strength, calc_stability_angle
 from .trailer_spec import stop_distance, parking_brake_total, parking_brake_trailer, running_performance
@@ -6,13 +6,14 @@ from .stability_angle import calculate_stability_angle
 from .turning_radius import calc_Lc, calc_R
 from .axle_strength import compute_axle_strength
 from .frame_strength import (
-	compute_frame_strength,
-	compute_container_frame_strength,
-	compute_container_frame_strength_axles,
-	compute_frame_strength_hbeam,
-	compute_container_frame_strength_hbeam,
-	compute_container_frame_strength_axles_hbeam,
-	compute_container_frame_strength_supports_inside,
-	compute_container_frame_strength_supports_inside_hbeam,
+compute_frame_strength,
+compute_container_frame_strength,
+compute_container_frame_strength_axles,
+compute_frame_strength_hbeam,
+compute_container_frame_strength_hbeam,
+compute_container_frame_strength_axles_hbeam,
+compute_container_frame_strength_supports_inside,
+compute_container_frame_strength_supports_inside_hbeam,
 )
 from .chassis_frame import compute_chassis_frame_strength
+from .hitch_strength import compute_hitch_strength, format_hitch_strength_result

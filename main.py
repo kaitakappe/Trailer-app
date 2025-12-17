@@ -27,7 +27,8 @@ from lib import (
 	calculate_stability_angle, calc_Lc, calc_R, compute_axle_strength, compute_frame_strength,
 	compute_container_frame_strength, compute_container_frame_strength_axles,
 	compute_frame_strength_hbeam, compute_container_frame_strength_hbeam, compute_container_frame_strength_axles_hbeam,
-	compute_container_frame_strength_supports_inside, compute_container_frame_strength_supports_inside_hbeam
+	compute_container_frame_strength_supports_inside, compute_container_frame_strength_supports_inside_hbeam,
+	compute_hitch_strength, format_hitch_strength_result
 )
 from lib.form_issuer import (
 	Form1Data, Form2Data, collect_calculation_data, auto_fill_form1_data, auto_fill_form2_data, generate_form1_pdf, generate_form2_pdf,
@@ -3661,6 +3662,496 @@ class CouplerStrengthPanel(wx.Panel):
 		
 		c.save()
 
+class HitchStrengthPanel(wx.Panel):
+	"""ヒッチメンバー強度計算パネル"""
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last = None
+		v = wx.BoxSizer(wx.VERTICAL)
+		
+		# タイトル
+		t = wx.StaticText(self, label='ヒッチメンバー強度計算')
+		f = t.GetFont(); f.PointSize += 2; f = f.Bold(); t.SetFont(f)
+		v.Add(t, 0, wx.ALL, 6)
+		
+		# 入力項目の位置イメージ（800px）
+		img_path = os.path.join(os.path.dirname(__file__), 'assets', 'hitch_diagram.png')
+		if os.path.exists(img_path):
+			try:
+				img = wx.Image(img_path, wx.BITMAP_TYPE_PNG)
+				max_w = 800
+				if img.GetWidth() > max_w:
+					scale_h = int(img.GetHeight() * max_w / img.GetWidth())
+					img = img.Scale(max_w, scale_h)
+				bmp = wx.Bitmap(img)
+				self.diagram = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(bmp))
+				v.Add(self.diagram, 0, wx.ALIGN_CENTER | wx.ALL, 4)
+			except Exception:
+				pass
+		
+		# 入力フィールド
+		grid = wx.FlexGridSizer(0, 4, 6, 8)
+		
+		# 荷重条件
+		self.P = self._add(grid, '垂直荷重 P [kg]', '', '1500')
+		self.H = self._add(grid, '水平牽引力 H [kg]', '', '300')
+		
+		# 寸法
+		self.L = self._add(grid, 'ヒッチ有効長さ [mm]', '', '200')
+		self.d = self._add(grid, '直径 or 辺長 [mm]', '', '50')
+		
+		# 材料形状
+		self.material_type = wx.Choice(self)
+		self.material_type.Append('円形')
+		self.material_type.Append('角形')
+		self.material_type.SetSelection(0)
+		grid.Add(wx.StaticText(self, label='形状'), 0, wx.ALIGN_CENTER_VERTICAL)
+		grid.Add(self.material_type, 0, wx.EXPAND)
+		grid.Add(wx.StaticText(self), 0)
+		grid.Add(wx.StaticText(self), 0)
+		
+		# 角形の場合の肉厚
+		self.thickness = self._add(grid, '肉厚 (角形時) [mm]', '', '3')
+		
+		# 材料特性
+		self.tensile = self._add(grid, '引張強さ [kg/cm²]', '', '410')
+		self.yield_pt = self._add(grid, '降伏点 [kg/cm²]', '', '240')
+		
+		# 荷重倍率
+		self.factor = self._add(grid, '荷重倍率', '', '2.5')
+		
+		grid.AddGrowableCol(1, 1); grid.AddGrowableCol(3, 1)
+		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
+		box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+		v.Add(box, 0, wx.EXPAND | wx.ALL, 6)
+		
+		# 計算・PDF出力ボタン
+		row = wx.BoxSizer(wx.HORIZONTAL)
+		btn_calc = wx.Button(self, label='計算')
+		btn_pdf  = wx.Button(self, label='PDF出力')
+		btn_pdf.Enable(False)
+		row.Add(btn_calc, 0, wx.RIGHT, 8)
+		row.Add(btn_pdf, 0)
+		v.Add(row, 0, wx.ALIGN_CENTER | wx.ALL, 6)
+		
+		# 結果表示エリア
+		self.result_text = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+		v.Add(self.result_text, 1, wx.EXPAND | wx.ALL, 6)
+		
+		# イベント
+		btn_calc.Bind(wx.EVT_BUTTON, lambda e: (self.on_calc(), e.Skip()))
+		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
+		self.btn_pdf = btn_pdf
+		
+		self.SetSizer(v)
+
+	def _add(self, sizer, label, default='', hint=''):
+		"""入力フィールド追加ヘルパー"""
+		t = wx.TextCtrl(self, value=default, style=wx.TE_RIGHT)
+		if hint:
+			t.SetHint(hint)
+		sizer.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add(t, 0, wx.EXPAND)
+		return t
+
+	def on_calc(self):
+		"""計算実行"""
+		try:
+			# 入力値取得
+			P = float(self.P.GetValue() or 0)
+			H = float(self.H.GetValue() or 0)
+			L = float(self.L.GetValue() or 0)
+			d = float(self.d.GetValue() or 0)
+			thickness = float(self.thickness.GetValue() or 0) if self.thickness.GetValue() else None
+			tensile = float(self.tensile.GetValue() or 0)
+			yield_pt = float(self.yield_pt.GetValue() or 0)
+			factor = float(self.factor.GetValue() or 2.5)
+			material_type = 'round' if self.material_type.GetSelection() == 0 else 'square'
+			
+			# 計算実行
+			result = compute_hitch_strength(
+				P=P, H=H, L_mm=L, d_mm=d,
+				tensile_strength=tensile,
+				yield_strength=yield_pt,
+				thickness_mm=thickness,
+				material_type=material_type,
+				factor=factor
+			)
+			
+			# 結果を整形表示
+			result_str = format_hitch_strength_result(result)
+			self.result_text.SetValue(result_str)
+			
+			# 結果保存
+			self.last = result
+			self.btn_pdf.Enable(True)
+			
+		except ValueError as e:
+			wx.MessageBox(f'入力値を確認してください: {e}', '入力エラー', wx.OK | wx.ICON_ERROR)
+		except Exception as e:
+			wx.MessageBox(f'計算エラー: {e}', 'エラー', wx.OK | wx.ICON_ERROR)
+
+	def on_export_pdf(self):
+		"""PDF出力"""
+		if not self.last:
+			wx.MessageBox('先に計算を実行してください。', '情報', wx.OK | wx.ICON_INFORMATION)
+			return
+		
+		dlg = wx.FileDialog(self, 'PDF保存先を選択', wildcard='PDF files (*.pdf)|*.pdf',
+		                    style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
+		if dlg.ShowModal() != wx.ID_OK:
+			dlg.Destroy()
+			return
+		path = dlg.GetPath()
+		dlg.Destroy()
+		
+		try:
+			self.export_to_path(path)
+			wx.MessageBox(f'PDF出力完了:\n{path}', '完了', wx.OK | wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力エラー: {e}', 'エラー', wx.OK | wx.ICON_ERROR)
+
+	def get_state(self):
+		"""状態を取得"""
+		return {
+			'P': self.P.GetValue(),
+			'H': self.H.GetValue(),
+			'L': self.L.GetValue(),
+			'd': self.d.GetValue(),
+			'thickness': self.thickness.GetValue(),
+			'tensile': self.tensile.GetValue(),
+			'yield_pt': self.yield_pt.GetValue(),
+			'factor': self.factor.GetValue(),
+			'material_type': self.material_type.GetSelection(),
+			'result': self.result_text.GetValue(),
+		}
+
+	def set_state(self, state):
+		"""状態を復元"""
+		self.P.SetValue(state.get('P', ''))
+		self.H.SetValue(state.get('H', ''))
+		self.L.SetValue(state.get('L', ''))
+		self.d.SetValue(state.get('d', ''))
+		self.thickness.SetValue(state.get('thickness', ''))
+		self.tensile.SetValue(state.get('tensile', ''))
+		self.yield_pt.SetValue(state.get('yield_pt', ''))
+		self.factor.SetValue(state.get('factor', ''))
+		self.material_type.SetSelection(state.get('material_type', 0))
+		self.result_text.SetValue(state.get('result', ''))
+
+	def export_to_path(self, path):
+		"""PDF出力"""
+		if not self.last:
+			return
+		
+		from reportlab.pdfgen import canvas
+		from reportlab.lib.pagesizes import A4
+		from reportlab.pdfbase import pdfmetrics
+		from reportlab.pdfbase.ttfonts import TTFont
+		
+		# 日本語フォント登録
+		try:
+			pdfmetrics.registerFont(TTFont('Japanese', 'C:\\Windows\\Fonts\\msgothic.ttc'))
+			font_name = 'Japanese'
+		except:
+			font_name = 'Helvetica'
+		
+		c = canvas.Canvas(path, pagesize=A4)
+		w, h = A4
+		
+		# タイトル
+		c.setFont(font_name, 16)
+		c.drawString(50, h - 50, 'ヒッチメンバー強度計算書')
+		
+		y = h - 100
+		c.setFont(font_name, 10)
+		
+		# 入力値
+		c.drawString(50, y, '【入力条件】'); y -= 20
+		c.drawString(70, y, f'垂直荷重 P: {self.last["P"]:.1f} kg'); y -= 15
+		c.drawString(70, y, f'水平牽引力 H: {self.last["H"]:.1f} kg'); y -= 15
+		c.drawString(70, y, f'有効長さ L: {self.last["L_mm"]:.1f} mm'); y -= 15
+		c.drawString(70, y, f'荷重倍率: {self.last["factor"]:.1f}×'); y -= 15
+		
+		if self.last['material_type'] == 'round':
+			c.drawString(70, y, f'形状: 円形 (直径 {self.last["d_mm"]:.1f} mm)'); y -= 15
+		else:
+			c.drawString(70, y, f'形状: 角形 (辺長 {self.last["d_mm"]:.1f} mm, 肉厚 {self.last["thickness_mm"]:.1f} mm)'); y -= 15
+		
+		c.drawString(70, y, f'材料: 引張強さ={self.last["tensile_strength"]:.1f}, 降伏点={self.last["yield_strength"]:.1f} kg/cm²'); y -= 30
+		
+		# 計算結果
+		c.drawString(50, y, '【計算結果】'); y -= 20
+		c.drawString(70, y, f'垂直曲げモーメント: {self.last["M_vertical"]:.1f} kg·cm'); y -= 15
+		c.drawString(70, y, f'水平曲げモーメント: {self.last["M_horizontal"]:.1f} kg·cm'); y -= 15
+		c.drawString(70, y, f'合成曲げモーメント: {self.last["M_combined"]:.1f} kg·cm'); y -= 15
+		c.drawString(70, y, f'断面係数 Z: {self.last["Z"]:.3f} cm³'); y -= 15
+		c.drawString(70, y, f'曲げ応力 σ: {self.last["sigma"]:.2f} kg/cm²'); y -= 15
+		c.drawString(70, y, f'破断安全率: {self.last["sf_break"]:.2f}' + 
+		            (' ✓ OK' if self.last['ok_break'] else ' ✗ NG') + 
+		            f' (基準: > 1.6)'); y -= 15
+		c.drawString(70, y, f'降伏安全率: {self.last["sf_yield"]:.2f}' + 
+		            (' ✓ OK' if self.last['ok_yield'] else ' ✗ NG') + 
+		            f' (基準: > 1.3)'); y -= 15
+		
+		c.save()
+
+class TowingSpecPanel(wx.Panel):
+	"""牽引車の諸元表を作成するパネル"""
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last = None
+		v = wx.BoxSizer(wx.VERTICAL)
+
+		# タイトル
+		t = wx.StaticText(self, label='牽引車 諸元')
+		f = t.GetFont(); f.PointSize += 2; f = f.Bold(); t.SetFont(f)
+		v.Add(t, 0, wx.ALL, 6)
+
+		# 入力フォーム
+		grid = wx.FlexGridSizer(0, 4, 6, 8)
+
+		# 車両基本
+		self.maker = self._add(grid, 'メーカー', '', '')
+		self.model = self._add(grid, '車名・型式', '', '')
+		self.vin = self._add(grid, '車台番号(任意)', '', '')
+		self.reg_no = self._add(grid, '登録番号(任意)', '', '')
+
+		# 寸法
+		self.length = self._add(grid, '全長 [mm]', '', '')
+		self.width  = self._add(grid, '全幅 [mm]', '', '')
+		self.height = self._add(grid, '全高 [mm]', '', '')
+		self.wheelbase = self._add(grid, 'ホイールベース [mm]', '', '')
+		self.min_turn = self._add(grid, '最小回転半径 [m]', '', '')
+		self.ground_clearance = self._add(grid, '最低地上高 [mm]', '', '')
+		self.twf = self._add(grid, '前トレッド [mm]', '', '')
+		self.twr = self._add(grid, '後トレッド [mm]', '', '')
+
+		# 重量・能力
+		self.curb = self._add(grid, '車両重量 [kg]', '', '')
+		self.gvwr = self._add(grid, '車両総重量(許容) [kg]', '', '')
+		self.towing_cap = self._add(grid, '牽引能力 [kg]', '', '')
+		self.tongue = self._add(grid, '許容垂直荷重(ヒッチ) [kg]', '', '')
+
+		# 動力・駆動
+		self.engine = self._add(grid, 'エンジン型式/燃料', '', '')
+		self.disp = self._add(grid, '排気量 [cc]', '', '')
+		self.power = self._add(grid, '最高出力 [kW]', '', '')
+		self.torque = self._add(grid, '最大トルク [N·m]', '', '')
+		self.trans = self._add(grid, '変速機(AT/MT/CVT)', '', '')
+		self.drive = self._add(grid, '駆動方式(2WD/4WD)', '', '')
+
+		# 足回り・制動
+		self.brake = self._add(grid, '制動装置', '', '前後: ディスク/ドラム 等')
+		self.tire  = self._add(grid, 'タイヤサイズ', '', '例: 205/60R16')
+		self.suspension = self._add(grid, 'サスペンション', '', '例: 前:ストラット/後:トーション, コイルスプリング')
+
+		# ヒッチ装備
+		self.hitch_type = self._add(grid, 'ヒッチ種類', '', '50mmボール 等')
+		self.connector = self._add(grid, '電気コネクタ', '', '7極/13極 等')
+		self.safety_chain_point = self._add(grid, 'セーフティチェーン取付', '', '有/無・取付位置')
+
+		grid.AddGrowableCol(1, 1)
+		grid.AddGrowableCol(3, 1)
+		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
+		box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+		v.Add(box, 0, wx.EXPAND | wx.ALL, 6)
+
+		# ボタン列
+		row = wx.BoxSizer(wx.HORIZONTAL)
+		btn_preview = wx.Button(self, label='プレビュー')
+		btn_pdf     = wx.Button(self, label='PDF出力')
+		row.Add(btn_preview, 0, wx.RIGHT, 8)
+		row.Add(btn_pdf, 0)
+		v.Add(row, 0, wx.ALIGN_CENTER | wx.ALL, 6)
+
+		# プレビュー
+		self.preview = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+		v.Add(self.preview, 1, wx.EXPAND | wx.ALL, 6)
+
+		btn_preview.Bind(wx.EVT_BUTTON, lambda e: (self.on_preview(), e.Skip()))
+		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
+
+		self.SetSizer(v)
+
+	def _add(self, sizer, label, default='', hint=''):
+		ctrl = wx.TextCtrl(self, value=default)
+		if hint:
+			ctrl.SetHint(hint)
+		sizer.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add(ctrl, 0, wx.EXPAND)
+		return ctrl
+
+	def collect(self) -> dict:
+		return {
+			'maker': self.maker.GetValue(),
+			'model': self.model.GetValue(),
+			'vin': self.vin.GetValue(),
+			'reg_no': self.reg_no.GetValue(),
+			'length': self.length.GetValue(),
+			'width': self.width.GetValue(),
+			'height': self.height.GetValue(),
+			'wheelbase': self.wheelbase.GetValue(),
+			'min_turn_radius': self.min_turn.GetValue(),
+			'ground_clearance': self.ground_clearance.GetValue(),
+			'twf': self.twf.GetValue(),
+			'twr': self.twr.GetValue(),
+			'curb': self.curb.GetValue(),
+			'gvwr': self.gvwr.GetValue(),
+			'towing_cap': self.towing_cap.GetValue(),
+			'tongue': self.tongue.GetValue(),
+			'engine': self.engine.GetValue(),
+			'disp': self.disp.GetValue(),
+			'power': self.power.GetValue(),
+			'torque': self.torque.GetValue(),
+			'trans': self.trans.GetValue(),
+			'drive': self.drive.GetValue(),
+			'brake': self.brake.GetValue(),
+			'tire': self.tire.GetValue(),
+			'suspension': self.suspension.GetValue(),
+			'hitch_type': self.hitch_type.GetValue(),
+			'connector': self.connector.GetValue(),
+			'safety_chain_point': self.safety_chain_point.GetValue(),
+		}
+
+	def on_preview(self):
+		data = self.collect()
+		lines = []
+		lines.append('【車両】')
+		lines.append(f"  メーカー: {data['maker']}")
+		lines.append(f"  車名・型式: {data['model']}")
+		if data['vin']: lines.append(f"  車台番号: {data['vin']}")
+		if data['reg_no']: lines.append(f"  登録番号: {data['reg_no']}")
+		lines.append('')
+		lines.append('【寸法】')
+		lines.append(f"  全長×全幅×全高: {data['length']} × {data['width']} × {data['height']} mm")
+		lines.append(f"  ホイールベース: {data['wheelbase']} mm")
+		lines.append(f"  最小回転半径: {data['min_turn_radius']} m")
+		lines.append(f"  最低地上高: {data['ground_clearance']} mm")
+		lines.append(f"  前後トレッド: {data['twf']} / {data['twr']} mm")
+		lines.append('')
+		lines.append('【重量・能力】')
+		lines.append(f"  車両重量: {data['curb']} kg  /  総重量(許容): {data['gvwr']} kg")
+		lines.append(f"  牽引能力: {data['towing_cap']} kg  /  許容垂直荷重: {data['tongue']} kg")
+		lines.append('')
+		lines.append('【動力・駆動】')
+		lines.append(f"  エンジン/燃料: {data['engine']}  排気量: {data['disp']} cc")
+		lines.append(f"  最高出力/最大トルク: {data['power']} kW / {data['torque']} N·m")
+		lines.append(f"  変速機: {data['trans']}  駆動方式: {data['drive']}")
+		lines.append('')
+		lines.append('【足回り】')
+		lines.append(f"  制動装置: {data['brake']}  タイヤ: {data['tire']}")
+		lines.append(f"  サスペンション: {data['suspension']}")
+		lines.append('')
+		lines.append('【連結装置】')
+		lines.append(f"  ヒッチ: {data['hitch_type']}  電気: {data['connector']}  チェーン: {data['safety_chain_point']}")
+
+		text = '\n'.join(lines)
+		self.preview.SetValue(text)
+		self.last = data
+
+	def on_export_pdf(self):
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。','PDF出力不可',wx.ICON_ERROR)
+			return
+		if not self.last:
+			self.on_preview()
+			if not self.last:
+				wx.MessageBox('先にプレビューを作成してください。','情報',wx.ICON_INFORMATION)
+				return
+		with wx.FileDialog(self, 'PDF保存先を選択', wildcard='PDF files (*.pdf)|*.pdf', style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT, defaultFile='towing_spec.pdf') as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			path = dlg.GetPath()
+		try:
+			self.export_to_path(path)
+			wx.MessageBox(f'PDF出力完了:\n{path}','完了',wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力エラー: {e}','エラー',wx.ICON_ERROR)
+
+	def export_to_path(self, path):
+		from reportlab.pdfgen import canvas
+		from reportlab.lib.pagesizes import A4
+		from reportlab.pdfbase import pdfmetrics
+		from reportlab.pdfbase.ttfonts import TTFont
+		data = self.last or self.collect()
+		# 日本語フォント
+		try:
+			pdfmetrics.registerFont(TTFont('Japanese', 'C:\\Windows\\Fonts\\meiryo.ttc'))
+			font = 'Japanese'
+		except Exception:
+			font = 'Helvetica'
+		c = canvas.Canvas(path, pagesize=A4)
+		w, h = A4
+		c.setFont(font, 16)
+		c.drawString(50, h - 50, '牽引車 諸元表')
+		y = h - 90
+		c.setFont(font, 10)
+		# 車両
+		c.drawString(50, y, '【車両】'); y -= 18
+		c.drawString(70, y, f"メーカー: {data.get('maker','')}"); y -= 14
+		c.drawString(70, y, f"車名・型式: {data.get('model','')}"); y -= 14
+		if data.get('vin'): c.drawString(70, y, f"車台番号: {data.get('vin')}"); y -= 14
+		if data.get('reg_no'): c.drawString(70, y, f"登録番号: {data.get('reg_no')}"); y -= 18
+		# 寸法
+		c.drawString(50, y, '【寸法】'); y -= 18
+		c.drawString(70, y, f"全長×全幅×全高: {data.get('length','')} × {data.get('width','')} × {data.get('height','')} mm"); y -= 14
+		c.drawString(70, y, f"ホイールベース: {data.get('wheelbase','')} mm"); y -= 14
+		c.drawString(70, y, f"最小回転半径: {data.get('min_turn_radius','')} m"); y -= 14
+		c.drawString(70, y, f"最低地上高: {data.get('ground_clearance','')} mm"); y -= 14
+		c.drawString(70, y, f"前後トレッド: {data.get('twf','')} / {data.get('twr','')} mm"); y -= 18
+		# 重量・能力
+		c.drawString(50, y, '【重量・能力】'); y -= 18
+		c.drawString(70, y, f"車両重量: {data.get('curb','')} kg  総重量(許容): {data.get('gvwr','')} kg"); y -= 14
+		c.drawString(70, y, f"牽引能力: {data.get('towing_cap','')} kg  許容垂直荷重: {data.get('tongue','')} kg"); y -= 18
+		# 動力・駆動
+		c.drawString(50, y, '【動力・駆動】'); y -= 18
+		c.drawString(70, y, f"エンジン/燃料: {data.get('engine','')}  排気量: {data.get('disp','')} cc"); y -= 14
+		c.drawString(70, y, f"最高出力/最大トルク: {data.get('power','')} kW / {data.get('torque','')} N·m"); y -= 14
+		c.drawString(70, y, f"変速機: {data.get('trans','')}  駆動方式: {data.get('drive','')}"); y -= 18
+		# 足回り
+		c.drawString(50, y, '【足回り】'); y -= 18
+		c.drawString(70, y, f"制動装置: {data.get('brake','')}  タイヤ: {data.get('tire','')}"); y -= 14
+		c.drawString(70, y, f"サスペンション: {data.get('suspension','')}"); y -= 18
+		# 連結装置
+		c.drawString(50, y, '【連結装置】'); y -= 18
+		c.drawString(70, y, f"ヒッチ: {data.get('hitch_type','')}  電気: {data.get('connector','')}  チェーン: {data.get('safety_chain_point','')}"); y -= 18
+		c.save()
+
+	def get_state(self):
+		return self.collect() | {'preview': self.preview.GetValue()}
+
+	def set_state(self, state):
+		self.maker.SetValue(state.get('maker', ''))
+		self.model.SetValue(state.get('model', ''))
+		self.vin.SetValue(state.get('vin', ''))
+		self.reg_no.SetValue(state.get('reg_no', ''))
+		self.length.SetValue(state.get('length', ''))
+		self.width.SetValue(state.get('width', ''))
+		self.height.SetValue(state.get('height', ''))
+		self.wheelbase.SetValue(state.get('wheelbase', ''))
+		self.min_turn.SetValue(state.get('min_turn_radius', ''))
+		self.ground_clearance.SetValue(state.get('ground_clearance', ''))
+		self.twf.SetValue(state.get('twf', ''))
+		self.twr.SetValue(state.get('twr', ''))
+		self.curb.SetValue(state.get('curb', ''))
+		self.gvwr.SetValue(state.get('gvwr', ''))
+		self.towing_cap.SetValue(state.get('towing_cap', ''))
+		self.tongue.SetValue(state.get('tongue', ''))
+		self.engine.SetValue(state.get('engine', ''))
+		self.disp.SetValue(state.get('disp', ''))
+		self.power.SetValue(state.get('power', ''))
+		self.torque.SetValue(state.get('torque', ''))
+		self.trans.SetValue(state.get('trans', ''))
+		self.drive.SetValue(state.get('drive', ''))
+		self.brake.SetValue(state.get('brake', ''))
+		self.tire.SetValue(state.get('tire', ''))
+		self.suspension.SetValue(state.get('suspension', ''))
+		self.hitch_type.SetValue(state.get('hitch_type', ''))
+		self.connector.SetValue(state.get('connector', ''))
+		self.safety_chain_point.SetValue(state.get('safety_chain_point', ''))
+		self.preview.SetValue(state.get('preview', ''))
+
 class TwoAxleLeafSpringPanel(wx.Panel):
 	"""2軸式板ばねの重量分布計算（前軸/後軸反力）"""
 	def __init__(self, parent):
@@ -5541,6 +6032,8 @@ class MainFrame(wx.Frame):
 			('車軸強度', AxleStrengthPanel(self.nb)),
 			('車枠強度', FrameStrengthPanel(self.nb)),
 			('連結部強度', CouplerStrengthPanel(self.nb)),
+			('ヒッチメンバー強度', HitchStrengthPanel(self.nb)),
+			('牽引車諸元', TowingSpecPanel(self.nb)),
 			('板ばね分布', TwoAxleLeafSpringPanel(self.nb)),
 			('安全チェーン', SafetyChainPanel(self.nb)),
 			('保安基準適合検討表', Form2Panel(self.nb)),
