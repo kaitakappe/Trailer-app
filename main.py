@@ -4078,7 +4078,7 @@ class BrakeStrengthPanel(wx.Panel):
 			# 外径円
 			outer_r = 50
 			dc.SetPen(wx.Pen(wx.BLACK, 2))
-			dc.SetBrush(wx.Brush(wx.Colour(200, 220, 250), wx.TRANSPARENT))
+			dc.SetBrush(wx.Brush(wx.Colour(200, 220, 250)))
 			dc.DrawCircle(cx, cy, outer_r)
 			
 			# 内径円
