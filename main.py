@@ -4214,18 +4214,22 @@ class BrakeStrengthPanel(wx.Panel):
 		mark_s = '合格' if self.last['ok_shear'] else '不合格'
 		c.drawString(70, y, f"せん断: {self.last['safety_factor_shear']:.2f}倍 ... {mark_s}"); y -= 15
 		
+		# 計算式
+		c.drawString(50, y, '【計算式】'); y -= 18
+		c.setFont(font, 9)
+		c.drawString(70, y, f"径比: k = r_o / r_i = {self.last['r_outer']:.1f} / {self.last['r_inner']:.1f}"); y -= 12
+		c.drawString(70, y, f"Hoop応力: σθ = P * (k²+1) / (k²-1)"); y -= 12
+		c.drawString(70, y, f"         σθ = {self.last['pressure_mpa']:.3f} * ({self.last['k_diameter_ratio']:.3f}²+1) / ({self.last['k_diameter_ratio']:.3f}²-1)"); y -= 12
+		c.drawString(70, y, f"         σθ = {self.last['sigma_hoop_inner']:.2f} N/mm²"); y -= 12
+		c.drawString(70, y, f"等価応力(von Mises): σeq = σθ (この場合)"); y -= 12
+		c.drawString(70, y, f"安全率: SF = 材料強度 / 等価応力"); y -= 12
+		c.drawString(70, y, f"基準: SF >= {self.last['min_safety_required']:.1f}倍で合格"); y -= 18
+		
+		c.setFont(font, 11)
 		# 総合判定
 		c.drawString(50, y, '【総合判定】'); y -= 20
 		judge = '合格 ✓ OK' if self.last['ok_overall'] else '不合格 ✗ NG'
 		c.drawString(70, y, judge); y -= 20
-		
-		# 説明文
-		c.setFont(font, 10)
-		c.drawString(50, y, '【用語解説】'); y -= 15
-		c.drawString(70, y, 'Hoop応力: ドラムの周方向に生じる応力'); y -= 12
-		c.drawString(70, y, '等価応力: Hoop応力をもとに計算した複合応力'); y -= 12
-		c.drawString(70, y, '安全率: 材料強度 / 計算応力 (大きいほど安全)'); y -= 12
-		c.drawString(70, y, '基準値 1.5倍以上で「合格」とします'); y -= 12
 		
 		c.save()
 	
