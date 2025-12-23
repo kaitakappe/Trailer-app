@@ -3924,7 +3924,7 @@ class BrakeStrengthPanel(wx.Panel):
 		
 		# 基準値・説明テキスト
 		info_sizer = wx.BoxSizer(wx.VERTICAL)
-		info_text = wx.StaticText(self, label='ブレーキドラム強度計算\n\n[安全率基準値]\n引張強さ: >= 1.5\n降伏点: >= 1.5\nせん断強さ: >= 1.5\n\n[計算方法]\nLamé応力理論を使用して\n厚肉円筒の応力を計算')
+		info_text = wx.StaticText(self, label='【ブレーキドラム強度計算】\n\nブレーキドラム（円筒形）に\n内部から圧力が加わった時の\n強度を計算します。\n\n[安全率の基準]\n・引張強さ: >= 1.5倍\n・降伏点: >= 1.5倍\n・せん断強さ: >= 1.5倍\n\nすべての条件を満たせば「合格」\nです。')
 		info_text.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 		info_sizer.Add(info_text, 1, wx.ALL|wx.EXPAND, 5)
 		figure_sizer.Add(info_sizer, 1, wx.ALL|wx.EXPAND, 5)
@@ -3938,19 +3938,19 @@ class BrakeStrengthPanel(wx.Panel):
 		
 		# 寸法セクション
 		self._add_section(scroll_sizer, "寸法 (mm)", scroll)
-		self.r_inner = self._add(scroll_sizer, '内径', '210', scroll)
-		self.r_outer = self._add(scroll_sizer, '外径', '230', scroll)
-		self.width = self._add(scroll_sizer, '幅', '50', scroll)
+		self.r_inner = self._add(scroll_sizer, 'ドラム内径 (mm)', '210', scroll)
+		self.r_outer = self._add(scroll_sizer, 'ドラム外径 (mm)', '230', scroll)
+		self.width = self._add(scroll_sizer, 'ドラム幅 (mm)', '50', scroll)
 		
 		# 圧力セクション
-		self._add_section(scroll_sizer, "圧力 (MPa)", scroll)
-		self.pressure = self._add(scroll_sizer, '内圧', '25', scroll)
+		self._add_section(scroll_sizer, "ブレーキ内圧 (MPa)", scroll)
+		self.pressure = self._add(scroll_sizer, '最大作用圧力 (MPa)', '25', scroll)
 		
 		# 材料セクション
 		self._add_section(scroll_sizer, "材料強度 (N/mm2)", scroll)
-		self.tensile = self._add(scroll_sizer, '引張強さ', '1000', scroll)
-		self.yield_pt = self._add(scroll_sizer, '降伏点', '850', scroll)
-		self.shear = self._add(scroll_sizer, 'せん断強さ', '600', scroll)
+		self.tensile = self._add(scroll_sizer, '引張強さ (N/mm2)', '1000', scroll)
+		self.yield_pt = self._add(scroll_sizer, '降伏点 (N/mm2)', '850', scroll)
+		self.shear = self._add(scroll_sizer, 'せん断強さ (N/mm2)', '600', scroll)
 		
 		scroll.SetSizer(scroll_sizer)
 		main_sizer.Add(scroll, 1, wx.EXPAND|wx.ALL, 5)
@@ -4218,17 +4218,25 @@ class BrakeStrengthPanel(wx.Panel):
 		
 		# 安全率
 		c.drawString(50, y, '【安全率 (基準: >= ' + str(self.last['min_safety_required']) + ')】'); y -= 20
-		mark_t = 'OK' if self.last['ok_tensile'] else 'NG'
-		c.drawString(70, y, f"引張: {self.last['safety_factor_tensile']:.2f} {mark_t}"); y -= 15
-		mark_y = 'OK' if self.last['ok_yield'] else 'NG'
-		c.drawString(70, y, f"降伏: {self.last['safety_factor_yield']:.2f} {mark_y}"); y -= 15
-		mark_s = 'OK' if self.last['ok_shear'] else 'NG'
-		c.drawString(70, y, f"せん断: {self.last['safety_factor_shear']:.2f} {mark_s}"); y -= 15
+		mark_t = '合格' if self.last['ok_tensile'] else '不合格'
+		c.drawString(70, y, f"引張: {self.last['safety_factor_tensile']:.2f}倍 ... {mark_t}"); y -= 15
+		mark_y = '合格' if self.last['ok_yield'] else '不合格'
+		c.drawString(70, y, f"降伏: {self.last['safety_factor_yield']:.2f}倍 ... {mark_y}"); y -= 15
+		mark_s = '合格' if self.last['ok_shear'] else '不合格'
+		c.drawString(70, y, f"せん断: {self.last['safety_factor_shear']:.2f}倍 ... {mark_s}"); y -= 15
 		
 		# 総合判定
-		c.drawString(50, y, '【判定】'); y -= 20
-		judge = '適合' if self.last['ok_overall'] else '不適合'
-		c.drawString(70, y, f"総合判定: {judge}"); y -= 15
+		c.drawString(50, y, '【総合判定】'); y -= 20
+		judge = '合格 ✓ OK' if self.last['ok_overall'] else '不合格 ✗ NG'
+		c.drawString(70, y, judge); y -= 20
+		
+		# 説明文
+		c.setFont(font, 10)
+		c.drawString(50, y, '【用語解説】'); y -= 15
+		c.drawString(70, y, 'Hoop応力: ドラムの周方向に生じる応力'); y -= 12
+		c.drawString(70, y, '等価応力: Hoop応力をもとに計算した複合応力'); y -= 12
+		c.drawString(70, y, '安全率: 材料強度 / 計算応力 (大きいほど安全)'); y -= 12
+		c.drawString(70, y, '基準値 1.5倍以上で「合格」とします'); y -= 12
 		
 		c.save()
 	
