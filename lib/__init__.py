@@ -17,3 +17,4 @@ compute_container_frame_strength_supports_inside_hbeam,
 )
 from .chassis_frame import compute_chassis_frame_strength
 from .hitch_strength import compute_hitch_strength, format_hitch_strength_result
+from .brake_strength import compute_brake_drum_strength, format_brake_strength_result

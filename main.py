@@ -28,7 +28,8 @@ from lib import (
 	compute_container_frame_strength, compute_container_frame_strength_axles,
 	compute_frame_strength_hbeam, compute_container_frame_strength_hbeam, compute_container_frame_strength_axles_hbeam,
 	compute_container_frame_strength_supports_inside, compute_container_frame_strength_supports_inside_hbeam,
-	compute_hitch_strength, format_hitch_strength_result
+	compute_hitch_strength, format_hitch_strength_result,
+	compute_brake_drum_strength, format_brake_strength_result
 )
 from lib.form_issuer import (
 	Form1Data, Form2Data, collect_calculation_data, auto_fill_form1_data, auto_fill_form2_data, generate_form1_pdf, generate_form2_pdf,
@@ -3896,6 +3897,238 @@ class HitchStrengthPanel(wx.Panel):
 		
 		c.save()
 
+class BrakeStrengthPanel(wx.Panel):
+	"""制動装置（ブレーキドラム）強度計算パネル"""
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last = None
+		
+		main_sizer = wx.BoxSizer(wx.VERTICAL)
+		
+		# タイトル
+		title = wx.StaticText(self, label='制動装置（ブレーキドラム）強度計算')
+		title_font = title.GetFont()
+		title_font.PointSize += 3
+		title_font = title_font.Bold()
+		title.SetFont(title_font)
+		main_sizer.Add(title, 0, wx.ALL, 10)
+		
+		# スクロール & グリッド
+		scroll = wx.ScrolledWindow(self, style=wx.VSCROLL)
+		scroll.SetScrollRate(0, 20)
+		scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+		
+		# 寸法セクション
+		self._add_section(scroll_sizer, "寸法 (mm)", scroll)
+		self.r_inner = self._add(scroll_sizer, '内径', '210', scroll)
+		self.r_outer = self._add(scroll_sizer, '外径', '230', scroll)
+		self.width = self._add(scroll_sizer, '幅', '50', scroll)
+		
+		# 圧力セクション
+		self._add_section(scroll_sizer, "圧力 (MPa)", scroll)
+		self.pressure = self._add(scroll_sizer, '内圧', '25', scroll)
+		
+		# 材料セクション
+		self._add_section(scroll_sizer, "材料強度 (N/mm²)", scroll)
+		self.tensile = self._add(scroll_sizer, '引張強さ', '1000', scroll)
+		self.yield_pt = self._add(scroll_sizer, '降伏点', '850', scroll)
+		self.shear = self._add(scroll_sizer, 'せん断強さ', '600', scroll)
+		
+		scroll.SetSizer(scroll_sizer)
+		main_sizer.Add(scroll, 1, wx.EXPAND|wx.ALL, 5)
+		
+		# ボタン
+		btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		
+		btn_calc = wx.Button(self, label='計算')
+		btn_calc.Bind(wx.EVT_BUTTON, self.on_calc)
+		btn_sizer.Add(btn_calc, 0, wx.ALL, 5)
+		
+		btn_preview = wx.Button(self, label='プレビュー')
+		btn_preview.Bind(wx.EVT_BUTTON, self.on_preview)
+		btn_sizer.Add(btn_preview, 0, wx.ALL, 5)
+		
+		btn_export = wx.Button(self, label='PDF出力...')
+		btn_export.Bind(wx.EVT_BUTTON, self.on_export)
+		btn_sizer.Add(btn_export, 0, wx.ALL, 5)
+		
+		main_sizer.Add(btn_sizer, 0, wx.EXPAND|wx.ALL, 10)
+		self.SetSizer(main_sizer)
+	
+	def _add_section(self, sizer, title, parent):
+		"""セクションタイトルを追加"""
+		label = wx.StaticText(parent, label=title)
+		font = label.GetFont()
+		font.PointSize += 1
+		font = font.Bold()
+		label.SetFont(font)
+		sizer.Add(label, 0, wx.ALL|wx.TOP, 10)
+		sizer.Add(wx.StaticLine(parent), 0, wx.EXPAND|wx.LEFT|wx.RIGHT, 5)
+	
+	def _add(self, sizer, label, default='', parent=None):
+		"""入力フィールドを追加"""
+		h_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		label_widget = wx.StaticText(parent or self, label=label, size=wx.Size(100, -1))
+		h_sizer.Add(label_widget, 0, wx.ALIGN_CENTER_VERTICAL|wx.ALL, 5)
+		
+		text_ctrl = wx.TextCtrl(parent or self, value=default, size=wx.Size(150, -1))
+		h_sizer.Add(text_ctrl, 0, wx.ALL, 5)
+		
+		sizer.Add(h_sizer, 0, wx.EXPAND)
+		return text_ctrl
+	
+	def on_calc(self, _):
+		"""計算実行"""
+		try:
+			r_inner = float(self.r_inner.GetValue())
+			r_outer = float(self.r_outer.GetValue())
+			width = float(self.width.GetValue())
+			pressure = float(self.pressure.GetValue())
+			tensile = float(self.tensile.GetValue())
+			yield_pt = float(self.yield_pt.GetValue())
+			shear = float(self.shear.GetValue())
+			
+			if r_inner <= 0 or r_outer <= 0 or width <= 0 or pressure < 0:
+				raise ValueError('正の値を入力してください')
+			if r_inner >= r_outer:
+				raise ValueError('外径は内径より大きくしてください')
+			
+			self.last = compute_brake_drum_strength(
+				r_inner, r_outer, pressure, width,
+				tensile, yield_pt, shear
+			)
+			
+			text = format_brake_strength_result(self.last)
+			show_result('制動装置強度計算結果', text)
+		
+		except ValueError as e:
+			wx.MessageBox(f'入力エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def on_preview(self, _):
+		"""プレビュー"""
+		try:
+			if not self.last:
+				wx.MessageBox('先に「計算」を実行してください', 'プレビュー', wx.ICON_INFORMATION)
+				return
+			text = format_brake_strength_result(self.last)
+			show_result('制動装置強度 プレビュー', text)
+		except Exception as e:
+			wx.MessageBox(f'プレビューエラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def on_export(self, _):
+		"""PDF出力"""
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabがインストールされていません', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		
+		with wx.FileDialog(self, 'PDF保存',
+						   wildcard='PDF files (*.pdf)|*.pdf',
+						   style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT,
+						   defaultFile='制動装置強度計算.pdf') as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			output_path = dlg.GetPath()
+		
+		try:
+			if not self.last:
+				wx.MessageBox('先に「計算」を実行してください', 'エラー', wx.ICON_ERROR)
+				return
+			
+			self._export_pdf(output_path)
+			wx.MessageBox(f'PDFを保存しました:\n{output_path}', '完了', wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def _export_pdf(self, path):
+		"""PDF出力処理"""
+		if not self.last:
+			return
+		
+		from reportlab.pdfgen import canvas
+		from reportlab.lib.pagesizes import A4
+		from reportlab.pdfbase import pdfmetrics
+		from reportlab.pdfbase.ttfonts import TTFont
+		
+		try:
+			pdfmetrics.registerFont(TTFont('Japanese', 'C:/Windows/Fonts/msgothic.ttc'))
+			font = 'Japanese'
+		except:
+			font = 'Helvetica'
+		
+		c = canvas.Canvas(path, pagesize=A4)
+		w, h = A4
+		
+		# タイトル
+		c.setFont(font, 16)
+		c.drawCentredString(w/2, h - 50, '制動装置強度計算書')
+		
+		y = h - 100
+		c.setFont(font, 11)
+		
+		# 入力値
+		c.drawString(50, y, '【入力値】'); y -= 20
+		c.drawString(70, y, f"内径: {self.last['r_inner']:.1f} mm"); y -= 15
+		c.drawString(70, y, f"外径: {self.last['r_outer']:.1f} mm"); y -= 15
+		c.drawString(70, y, f"幅: {self.last['width']:.1f} mm"); y -= 15
+		c.drawString(70, y, f"内圧: {self.last['pressure_mpa']:.3f} MPa"); y -= 15
+		
+		# 応力
+		c.drawString(50, y, '【計算結果】'); y -= 20
+		c.drawString(70, y, f"径比 k: {self.last['k_diameter_ratio']:.3f}"); y -= 15
+		c.drawString(70, y, f"Hoop応力（内面）: {self.last['sigma_hoop_inner']:.2f} N/mm2"); y -= 15
+		c.drawString(70, y, f"等価応力: {self.last['equivalent_stress']:.2f} N/mm2"); y -= 15
+		
+		# 材料
+		c.drawString(50, y, '【材料強度】'); y -= 20
+		c.drawString(70, y, f"引張強さ: {self.last['material_tensile_strength']:.1f} N/mm2"); y -= 15
+		c.drawString(70, y, f"降伏点: {self.last['material_yield_strength']:.1f} N/mm2"); y -= 15
+		c.drawString(70, y, f"せん断強さ: {self.last['material_shear_strength']:.1f} N/mm2"); y -= 15
+		
+		# 安全率
+		c.drawString(50, y, '【安全率】'); y -= 20
+		mark_t = 'OK' if self.last['ok_tensile'] else 'NG'
+		c.drawString(70, y, f"引張: {self.last['safety_factor_tensile']:.2f} {mark_t}"); y -= 15
+		mark_y = 'OK' if self.last['ok_yield'] else 'NG'
+		c.drawString(70, y, f"降伏: {self.last['safety_factor_yield']:.2f} {mark_y}"); y -= 15
+		mark_s = 'OK' if self.last['ok_shear'] else 'NG'
+		c.drawString(70, y, f"せん断: {self.last['safety_factor_shear']:.2f} {mark_s}"); y -= 15
+		
+		# 総合判定
+		c.drawString(50, y, '【判定】'); y -= 20
+		judge = '適合' if self.last['ok_overall'] else '不適合'
+		c.drawString(70, y, f"総合判定: {judge}"); y -= 15
+		
+		c.save()
+	
+	def get_state(self):
+		return {
+			'r_inner': self.r_inner.GetValue(),
+			'r_outer': self.r_outer.GetValue(),
+			'width': self.width.GetValue(),
+			'pressure': self.pressure.GetValue(),
+			'tensile': self.tensile.GetValue(),
+			'yield_pt': self.yield_pt.GetValue(),
+			'shear': self.shear.GetValue(),
+		}
+	
+	def set_state(self, state):
+		if not state:
+			return
+		if 'r_inner' in state:
+			self.r_inner.SetValue(state['r_inner'])
+		if 'r_outer' in state:
+			self.r_outer.SetValue(state['r_outer'])
+		if 'width' in state:
+			self.width.SetValue(state['width'])
+		if 'pressure' in state:
+			self.pressure.SetValue(state['pressure'])
+		if 'tensile' in state:
+			self.tensile.SetValue(state['tensile'])
+		if 'yield_pt' in state:
+			self.yield_pt.SetValue(state['yield_pt'])
+		if 'shear' in state:
+			self.shear.SetValue(state['shear'])
+
 class TowingSpecPanel(wx.Panel):
 	"""牽引車の諸元表を作成するパネル"""
 	def __init__(self, parent):
@@ -6033,6 +6266,7 @@ class MainFrame(wx.Frame):
 			('車枠強度', FrameStrengthPanel(self.nb)),
 			('連結部強度', CouplerStrengthPanel(self.nb)),
 			('ヒッチメンバー強度', HitchStrengthPanel(self.nb)),
+			('制動装置強度', BrakeStrengthPanel(self.nb)),
 			('牽引車諸元', TowingSpecPanel(self.nb)),
 			('板ばね分布', TwoAxleLeafSpringPanel(self.nb)),
 			('安全チェーン', SafetyChainPanel(self.nb)),
