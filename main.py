@@ -4142,17 +4142,31 @@ class BrakeStrengthPanel(wx.Panel):
 		c = canvas.Canvas(path, pagesize=A4)
 		w, h = A4
 		
-		# タイトル
-		c.setFont(font, 16)
-		c.drawCentredString(w/2, h - 50, '制動装置強度計算書')
+		# ========== タイトル ==========
+		c.setFont(font, 14)
+		c.drawCentredString(w/2, h - 40, '制動装置構造強度計算書')
+		c.setFont(font, 9)
+		c.drawCentredString(w/2, h - 55, '（ブレーキドラム内圧強度計算）')
 		
-		y = h - 100
+		y = h - 85
 		
-		# 図描画
+		# ========== セクション：入力条件 ==========
+		c.setFont(font, 11)
+		c.drawString(50, y, '【入力条件】'); y -= 18
+		c.setFont(font, 10)
+		c.drawString(70, y, f"(a) ブレーキドラム"); y -= 15
+		c.drawString(90, y, f"材質: SC25相当"); y -= 12
+		c.drawString(90, y, f"内径 ri = {self.last['r_inner']:.1f} mm"); y -= 12
+		c.drawString(90, y, f"外径 ro = {self.last['r_outer']:.1f} mm"); y -= 12
+		c.drawString(90, y, f"幅 b = {self.last['width']:.1f} mm"); y -= 12
+		c.drawString(90, y, f"引張り強さ σb = 250N/mm²"); y -= 12
+		c.drawString(70, y, f"(b) 最大ブレーキ内圧: P = {self.last['pressure_mpa']:.3f} MPa"); y -= 18
+		
+		# ========== 図の描画 ==========
 		import math
-		cx, cy = w/2, y - 80  # 図の中心
-		outer_r = 40
-		inner_r = 28
+		cx, cy = w/2 - 100, y - 80  # 図の中心
+		outer_r = 35
+		inner_r = 24
 		
 		# 外径円
 		c.setStrokeColorRGB(0, 0, 0)
@@ -4167,7 +4181,7 @@ class BrakeStrengthPanel(wx.Panel):
 		# 内圧矢印（4方向）
 		c.setStrokeColorRGB(1, 0, 0)
 		c.setLineWidth(1.5)
-		arrow_len = 12
+		arrow_len = 10
 		for angle in [0, 90, 180, 270]:
 			rad = math.radians(angle)
 			start_x = cx + inner_r * math.cos(rad)
@@ -4177,59 +4191,63 @@ class BrakeStrengthPanel(wx.Panel):
 			c.line(start_x, start_y, end_x, end_y)
 		
 		# 図ラベル
-		c.setFont(font, 9)
+		c.setFont(font, 8)
 		c.setFillColorRGB(0, 0, 0)
-		c.drawString(cx - 50, cy + outer_r + 10, f"外径: {self.last['r_outer']:.0f}mm")
-		c.drawString(cx - 40, cy - 5, f"内径: {self.last['r_inner']:.0f}mm")
-		c.drawString(cx + inner_r + 5, cy, "内圧")
+		c.drawString(cx - 30, cy + outer_r + 5, f"ro={self.last['r_outer']:.0f}")
+		c.drawString(cx - 30, cy - 8, f"ri={self.last['r_inner']:.0f}")
 		
-		y = cy - outer_r - 30
+		y = cy - outer_r - 35
+		
+		# ========== セクション：計算式と結果 ==========
 		c.setFont(font, 11)
-		
-		# 入力値
-		c.drawString(50, y, '【入力値】'); y -= 20
-		c.drawString(70, y, f"内径: {self.last['r_inner']:.1f} mm"); y -= 15
-		c.drawString(70, y, f"外径: {self.last['r_outer']:.1f} mm"); y -= 15
-		c.drawString(70, y, f"幅: {self.last['width']:.1f} mm"); y -= 15
-		c.drawString(70, y, f"内圧: {self.last['pressure_mpa']:.3f} MPa"); y -= 15
-		
-		# 応力
-		c.drawString(50, y, '【計算結果】'); y -= 20
-		c.drawString(70, y, f"径比 k: {self.last['k_diameter_ratio']:.3f}"); y -= 15
-		c.drawString(70, y, f"Hoop応力（内面）: {self.last['sigma_hoop_inner']:.2f} N/mm2"); y -= 15
-		c.drawString(70, y, f"等価応力: {self.last['equivalent_stress']:.2f} N/mm2"); y -= 15
-		
-		# 材料
-		c.drawString(50, y, '【材料強度】'); y -= 20
-		c.drawString(70, y, f"引張強さ: {self.last['material_tensile_strength']:.1f} N/mm2"); y -= 15
-		c.drawString(70, y, f"降伏点: {self.last['material_yield_strength']:.1f} N/mm2"); y -= 15
-		c.drawString(70, y, f"せん断強さ: {self.last['material_shear_strength']:.1f} N/mm2"); y -= 15
-		
-		# 安全率
-		c.drawString(50, y, '【安全率 (基準: >= ' + str(self.last['min_safety_required']) + ')】'); y -= 20
-		mark_t = '合格' if self.last['ok_tensile'] else '不合格'
-		c.drawString(70, y, f"引張: {self.last['safety_factor_tensile']:.2f}倍 ... {mark_t}"); y -= 15
-		mark_y = '合格' if self.last['ok_yield'] else '不合格'
-		c.drawString(70, y, f"降伏: {self.last['safety_factor_yield']:.2f}倍 ... {mark_y}"); y -= 15
-		mark_s = '合格' if self.last['ok_shear'] else '不合格'
-		c.drawString(70, y, f"せん断: {self.last['safety_factor_shear']:.2f}倍 ... {mark_s}"); y -= 15
-		
-		# 計算式
-		c.drawString(50, y, '【計算式】'); y -= 18
+		c.drawString(50, y, '【計算式と計算結果】'); y -= 18
 		c.setFont(font, 9)
-		c.drawString(70, y, f"径比: k = r_o / r_i = {self.last['r_outer']:.1f} / {self.last['r_inner']:.1f}"); y -= 12
-		c.drawString(70, y, f"Hoop応力: σθ = P * (k²+1) / (k²-1)"); y -= 12
-		c.drawString(70, y, f"         σθ = {self.last['pressure_mpa']:.3f} * ({self.last['k_diameter_ratio']:.3f}²+1) / ({self.last['k_diameter_ratio']:.3f}²-1)"); y -= 12
-		c.drawString(70, y, f"         σθ = {self.last['sigma_hoop_inner']:.2f} N/mm²"); y -= 12
-		c.drawString(70, y, f"等価応力(von Mises): σeq = σθ (この場合)"); y -= 12
-		c.drawString(70, y, f"安全率: SF = 材料強度 / 等価応力"); y -= 12
-		c.drawString(70, y, f"基準: SF >= {self.last['min_safety_required']:.1f}倍で合格"); y -= 18
 		
+		# 径比計算
+		c.drawString(70, y, f"◆ 径比: n = ro / ri = {self.last['r_outer']:.1f} / {self.last['r_inner']:.1f} = {self.last['k_diameter_ratio']:.4f}"); y -= 12
+		
+		# Hoop応力計算
+		c.drawString(70, y, f"◆ Hoop応力（Lamé理論）"); y -= 12
+		c.drawString(90, y, f"σθ = P × (n² + 1) / (n² - 1)"); y -= 11
+		c.drawString(90, y, f"   = {self.last['pressure_mpa']:.3f} × ({self.last['k_diameter_ratio']:.4f}² + 1) / ({self.last['k_diameter_ratio']:.4f}² - 1)"); y -= 11
+		c.drawString(90, y, f"   = {self.last['sigma_hoop_inner']:.2f} N/mm²（内面）"); y -= 12
+		
+		# 等価応力
+		c.drawString(70, y, f"◆ 等価応力（von Mises）"); y -= 12
+		c.drawString(90, y, f"σeq = σθ = {self.last['equivalent_stress']:.2f} N/mm²"); y -= 18
+		
+		# ========== セクション：材料強度 ==========
 		c.setFont(font, 11)
-		# 総合判定
-		c.drawString(50, y, '【総合判定】'); y -= 20
+		c.drawString(50, y, '【材料強度】'); y -= 18
+		c.setFont(font, 10)
+		c.drawString(70, y, f"材質: SC25相当"); y -= 12
+		c.drawString(70, y, f"引張強さ σb = {self.last['material_tensile_strength']:.1f} N/mm²"); y -= 12
+		c.drawString(70, y, f"降伏点 σy = {self.last['material_yield_strength']:.1f} N/mm²"); y -= 12
+		c.drawString(70, y, f"せん断強さ τ = {self.last['material_shear_strength']:.1f} N/mm²"); y -= 18
+		
+		# ========== セクション：安全率 ==========
+		c.setFont(font, 11)
+		c.drawString(50, y, f"【安全率】（基準: >= {self.last['min_safety_required']:.1f}倍）"); y -= 18
+		c.setFont(font, 10)
+		c.drawString(70, y, f"◆ 引張に対して"); y -= 12
+		c.drawString(90, y, f"f = σb / σeq = {self.last['material_tensile_strength']:.1f} / {self.last['equivalent_stress']:.2f} = {self.last['safety_factor_tensile']:.2f}"); y -= 12
+		status_t = '合格' if self.last['ok_tensile'] else '不合格'
+		c.drawString(90, y, f"  ⇒ {status_t} ({self.last['safety_factor_tensile']:.2f} >= {self.last['min_safety_required']:.1f})"); y -= 15
+		
+		c.drawString(70, y, f"◆ 降伏に対して"); y -= 12
+		c.drawString(90, y, f"f = σy / σeq = {self.last['material_yield_strength']:.1f} / {self.last['equivalent_stress']:.2f} = {self.last['safety_factor_yield']:.2f}"); y -= 12
+		status_y = '合格' if self.last['ok_yield'] else '不合格'
+		c.drawString(90, y, f"  ⇒ {status_y} ({self.last['safety_factor_yield']:.2f} >= {self.last['min_safety_required']:.1f})"); y -= 15
+		
+		c.drawString(70, y, f"◆ せん断に対して"); y -= 12
+		c.drawString(90, y, f"f = τ / (σeq/2) = {self.last['material_shear_strength']:.1f} / {self.last['equivalent_stress']/2:.2f} = {self.last['safety_factor_shear']:.2f}"); y -= 12
+		status_s = '合格' if self.last['ok_shear'] else '不合格'
+		c.drawString(90, y, f"  ⇒ {status_s} ({self.last['safety_factor_shear']:.2f} >= {self.last['min_safety_required']:.1f})"); y -= 18
+		
+		# ========== 総合判定 ==========
+		c.setFont(font, 12)
 		judge = '合格 ✓ OK' if self.last['ok_overall'] else '不合格 ✗ NG'
-		c.drawString(70, y, judge); y -= 20
+
 		
 		c.save()
 	
