@@ -3924,7 +3924,7 @@ class BrakeStrengthPanel(wx.Panel):
 		
 		# 基準値・説明テキスト
 		info_sizer = wx.BoxSizer(wx.VERTICAL)
-		info_text = wx.StaticText(self, label='【ブレーキドラム強度計算】\n\nブレーキドラム（円筒形）に\n内部から圧力が加わった時の\n強度を計算します。\n\n[安全率の基準]\n・引張強さ: >= 1.5倍\n・降伏点: >= 1.5倍\n・せん断強さ: >= 1.5倍\n\nすべての条件を満たせば「合格」\nです。')
+		info_text = wx.StaticText(self, label='【ブレーキドラム強度計算】\n\nブレーキドラム（円筒形）に\n内部から圧力が加わった時の\n強度を計算します。\n\n[安全率の基準]\n・引張強さ: >= 1.6倍\n・降伏点: >= 1.6倍\n・せん断強さ: >= 1.6倍\n\nすべての条件を満たせば「合格」\nです。')
 		info_text.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 		info_sizer.Add(info_text, 1, wx.ALL|wx.EXPAND, 5)
 		figure_sizer.Add(info_sizer, 1, wx.ALL|wx.EXPAND, 5)

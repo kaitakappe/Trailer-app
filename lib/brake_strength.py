@@ -99,8 +99,8 @@ def compute_brake_drum_strength(
     result['safety_factor_shear'] = safety_factor_shear
     
     # ========== 判定基準 ==========
-    # 一般的な基準: 安全率 ≥ 1.5 (静的) ～ 2.0 (動的)
-    min_safety = 1.5
+    # 一般的な基準: 安全率 ≥ 1.6 (静的) ～ 2.0 (動的)
+    min_safety = 1.6
     
     ok_tensile = safety_factor_tensile >= min_safety
     ok_yield = safety_factor_yield >= min_safety
