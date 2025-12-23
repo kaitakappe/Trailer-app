@@ -4140,6 +4140,54 @@ class BrakeStrengthPanel(wx.Panel):
 		c.drawCentredString(w/2, h - 50, '制動装置強度計算書')
 		
 		y = h - 100
+		
+		# 図描画
+		import math
+		cx, cy = w/2, y - 80  # 図の中心
+		outer_r = 40
+		inner_r = 28
+		
+		# 外径円
+		c.setStrokeColorRGB(0, 0, 0)
+		c.setLineWidth(2)
+		c.setFillColorRGB(0.78, 0.86, 0.98)
+		c.circle(cx, cy, outer_r, fill=True, stroke=True)
+		
+		# 内径円
+		c.setFillColorRGB(1, 1, 1)
+		c.circle(cx, cy, inner_r, fill=True, stroke=True)
+		
+		# 内圧矢印（4方向）
+		c.setStrokeColorRGB(1, 0, 0)
+		c.setLineWidth(1.5)
+		arrow_len = 12
+		for angle in [0, 90, 180, 270]:
+			rad = math.radians(angle)
+			start_x = cx + inner_r * math.cos(rad)
+			start_y = cy + inner_r * math.sin(rad)
+			end_x = cx + (inner_r + arrow_len) * math.cos(rad)
+			end_y = cy + (inner_r + arrow_len) * math.sin(rad)
+			c.line(start_x, start_y, end_x, end_y)
+			
+			# 矢印先端（小三角形）
+			arrow_size = 3
+			p1_x = end_x - arrow_size * math.cos(rad)
+			p1_y = end_y - arrow_size * math.sin(rad)
+			p2_x = p1_x - arrow_size * math.sin(rad)
+			p2_y = p1_y + arrow_size * math.cos(rad)
+			p3_x = p1_x + arrow_size * math.sin(rad)
+			p3_y = p1_y - arrow_size * math.cos(rad)
+			c.setFillColorRGB(1, 0, 0)
+			c.polygon([p1_x, p1_y, p2_x, p2_y, p3_x, p3_y], fill=True, stroke=False)
+		
+		# 図ラベル
+		c.setFont(font, 9)
+		c.setFillColorRGB(0, 0, 0)
+		c.drawString(cx - 50, cy + outer_r + 10, f"外径: {self.last['r_outer']:.0f}mm")
+		c.drawString(cx - 40, cy - 5, f"内径: {self.last['r_inner']:.0f}mm")
+		c.drawString(cx + inner_r + 5, cy, "内圧")
+		
+		y = cy - outer_r - 30
 		c.setFont(font, 11)
 		
 		# 入力値
