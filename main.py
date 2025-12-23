@@ -3913,6 +3913,24 @@ class BrakeStrengthPanel(wx.Panel):
 		title.SetFont(title_font)
 		main_sizer.Add(title, 0, wx.ALL, 10)
 		
+		# 図描画パネル & 基準値表示
+		figure_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		
+		# 図描画エリア
+		self.diagram = wx.Panel(self, size=wx.Size(200, 200))
+		self.diagram.SetBackgroundColour(wx.Colour(245, 245, 245))
+		self.diagram.Bind(wx.EVT_PAINT, self.on_paint_diagram)
+		figure_sizer.Add(self.diagram, 0, wx.ALL|wx.EXPAND, 5)
+		
+		# 基準値・説明テキスト
+		info_sizer = wx.BoxSizer(wx.VERTICAL)
+		info_text = wx.StaticText(self, label='ブレーキドラム強度計算\n\n[安全率基準値]\n引張強さ: >= 1.5\n降伏点: >= 1.5\nせん断強さ: >= 1.5\n\n[計算方法]\nLamé応力理論を使用して\n厚肉円筒の応力を計算')
+		info_text.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+		info_sizer.Add(info_text, 1, wx.ALL|wx.EXPAND, 5)
+		figure_sizer.Add(info_sizer, 1, wx.ALL|wx.EXPAND, 5)
+		
+		main_sizer.Add(figure_sizer, 0, wx.EXPAND|wx.ALL, 5)
+		
 		# スクロール & グリッド
 		scroll = wx.ScrolledWindow(self, style=wx.VSCROLL)
 		scroll.SetScrollRate(0, 20)
@@ -3929,7 +3947,7 @@ class BrakeStrengthPanel(wx.Panel):
 		self.pressure = self._add(scroll_sizer, '内圧', '25', scroll)
 		
 		# 材料セクション
-		self._add_section(scroll_sizer, "材料強度 (N/mm²)", scroll)
+		self._add_section(scroll_sizer, "材料強度 (N/mm2)", scroll)
 		self.tensile = self._add(scroll_sizer, '引張強さ', '1000', scroll)
 		self.yield_pt = self._add(scroll_sizer, '降伏点', '850', scroll)
 		self.shear = self._add(scroll_sizer, 'せん断強さ', '600', scroll)
@@ -3998,7 +4016,12 @@ class BrakeStrengthPanel(wx.Panel):
 				tensile, yield_pt, shear
 			)
 			
+			# 図を更新
+			self.diagram.Refresh()
+			
 			text = format_brake_strength_result(self.last)
+			# 基準値情報を追加表示
+			text += f"\n[安全率基準] 引張/降伏/せん断 >= {self.last['min_safety_required']:.1f}"
 			show_result('制動装置強度計算結果', text)
 		
 		except ValueError as e:
@@ -4011,6 +4034,8 @@ class BrakeStrengthPanel(wx.Panel):
 				wx.MessageBox('先に「計算」を実行してください', 'プレビュー', wx.ICON_INFORMATION)
 				return
 			text = format_brake_strength_result(self.last)
+			# 基準値情報を追加表示
+			text += f"\n[安全率基準] 引張/降伏/せん断 >= {self.last['min_safety_required']:.1f}"
 			show_result('制動装置強度 プレビュー', text)
 		except Exception as e:
 			wx.MessageBox(f'プレビューエラー: {e}', 'エラー', wx.ICON_ERROR)
@@ -4038,6 +4063,58 @@ class BrakeStrengthPanel(wx.Panel):
 			wx.MessageBox(f'PDFを保存しました:\n{output_path}', '完了', wx.ICON_INFORMATION)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def on_paint_diagram(self, event):
+		"""図の描画"""
+		dc = wx.PaintDC(self.diagram)
+		dc.SetBackground(wx.Brush(wx.Colour(245, 245, 245)))
+		dc.Clear()
+		
+		# サイズ取得
+		w, h = self.diagram.GetSize()
+		cx, cy = w // 2, h // 2
+		
+		try:
+			# 外径円
+			outer_r = 50
+			dc.SetPen(wx.Pen(wx.BLACK, 2))
+			dc.SetBrush(wx.Brush(wx.Colour(200, 220, 250), wx.TRANSPARENT))
+			dc.DrawCircle(cx, cy, outer_r)
+			
+			# 内径円
+			inner_r = 35
+			dc.SetPen(wx.Pen(wx.BLACK, 2))
+			dc.SetBrush(wx.Brush(wx.WHITE))
+			dc.DrawCircle(cx, cy, inner_r)
+			
+			# 内圧矢印（4方向）
+			dc.SetPen(wx.Pen(wx.RED, 2))
+			arrow_len = 15
+			for angle in [0, 90, 180, 270]:
+				import math
+				rad = math.radians(angle)
+				start_x = cx + inner_r * math.cos(rad)
+				start_y = cy + inner_r * math.sin(rad)
+				end_x = cx + (inner_r + arrow_len) * math.cos(rad)
+				end_y = cy + (inner_r + arrow_len) * math.sin(rad)
+				dc.DrawLine(int(start_x), int(start_y), int(end_x), int(end_y))
+				# 矢印先端
+				dc.DrawPolygon([(int(end_x), int(end_y)), 
+							   (int(end_x - 3 * math.cos(rad) - 3 * math.sin(rad)), int(end_y - 3 * math.sin(rad) + 3 * math.cos(rad))),
+							   (int(end_x - 3 * math.cos(rad) + 3 * math.sin(rad)), int(end_y - 3 * math.sin(rad) - 3 * math.cos(rad)))])
+			
+			# ラベル
+			dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+			try:
+				r_inner_val = float(self.r_inner.GetValue())
+				r_outer_val = float(self.r_outer.GetValue())
+				dc.DrawText(f"内径:{r_inner_val:.0f}mm", cx - 40, cy + outer_r + 5)
+				dc.DrawText(f"外径:{r_outer_val:.0f}mm", cx - 40, cy - outer_r - 20)
+				dc.DrawText("内圧(赤矢印)", cx - 35, cy - 10)
+			except:
+				pass
+		except:
+			pass
 	
 	def _export_pdf(self, path):
 		"""PDF出力処理"""
@@ -4085,7 +4162,7 @@ class BrakeStrengthPanel(wx.Panel):
 		c.drawString(70, y, f"せん断強さ: {self.last['material_shear_strength']:.1f} N/mm2"); y -= 15
 		
 		# 安全率
-		c.drawString(50, y, '【安全率】'); y -= 20
+		c.drawString(50, y, '【安全率 (基準: >= ' + str(self.last['min_safety_required']) + ')】'); y -= 20
 		mark_t = 'OK' if self.last['ok_tensile'] else 'NG'
 		c.drawString(70, y, f"引張: {self.last['safety_factor_tensile']:.2f} {mark_t}"); y -= 15
 		mark_y = 'OK' if self.last['ok_yield'] else 'NG'
