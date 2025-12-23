@@ -4061,6 +4061,13 @@ class BrakeStrengthPanel(wx.Panel):
 			
 			self._export_pdf(output_path)
 			wx.MessageBox(f'PDFを保存しました:\n{output_path}', '完了', wx.ICON_INFORMATION)
+			
+			# PDF を自動で開く
+			import os
+			try:
+				os.startfile(output_path)
+			except:
+				pass
 		except Exception as e:
 			wx.MessageBox(f'PDF出力エラー: {e}', 'エラー', wx.ICON_ERROR)
 	
