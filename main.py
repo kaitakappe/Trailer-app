@@ -4175,17 +4175,6 @@ class BrakeStrengthPanel(wx.Panel):
 			end_x = cx + (inner_r + arrow_len) * math.cos(rad)
 			end_y = cy + (inner_r + arrow_len) * math.sin(rad)
 			c.line(start_x, start_y, end_x, end_y)
-			
-			# 矢印先端（小三角形）
-			arrow_size = 3
-			p1_x = end_x - arrow_size * math.cos(rad)
-			p1_y = end_y - arrow_size * math.sin(rad)
-			p2_x = p1_x - arrow_size * math.sin(rad)
-			p2_y = p1_y + arrow_size * math.cos(rad)
-			p3_x = p1_x + arrow_size * math.sin(rad)
-			p3_y = p1_y - arrow_size * math.cos(rad)
-			c.setFillColorRGB(1, 0, 0)
-			c.polygon([p1_x, p1_y, p2_x, p2_y, p3_x, p3_y], fill=True, stroke=False)
 		
 		# 図ラベル
 		c.setFont(font, 9)
