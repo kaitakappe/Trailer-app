@@ -5530,13 +5530,6 @@ class Form1Panel(wx.Panel):
 		self.axle_weight_front = self._add_field(scroll, scroll_sizer, "前軸重 (kg)", "")
 		self.axle_weight_rear = self._add_field(scroll, scroll_sizer, "後軸重 (kg)", "")
 		
-		# その他セクション
-		self._add_section(scroll_sizer, "その他", scroll)
-		notes_label = wx.StaticText(scroll, label="備考")
-		scroll_sizer.Add(notes_label, 0, wx.ALL, 5)
-		self.notes = wx.TextCtrl(scroll, style=wx.TE_MULTILINE, size=wx.Size(-1, 80))
-		scroll_sizer.Add(self.notes, 0, wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, 5)
-		
 		scroll.SetSizer(scroll_sizer)
 		main_sizer.Add(scroll, 1, wx.EXPAND|wx.ALL, 5)
 		
@@ -5715,7 +5708,6 @@ class Form1Panel(wx.Panel):
 			self.axle_count.SetValue("")
 			self.axle_weight_front.SetValue("")
 			self.axle_weight_rear.SetValue("")
-			self.notes.SetValue("")
 	
 	def on_preview(self, event):
 		"""プレビュー表示"""
@@ -5805,7 +5797,6 @@ class Form1Panel(wx.Panel):
 		data.axle_count = self.axle_count.GetValue()
 		data.axle_weight_front = self.axle_weight_front.GetValue()
 		data.axle_weight_rear = self.axle_weight_rear.GetValue()
-		data.notes = self.notes.GetValue()
 		return data
 	
 	def _format_preview(self, data: Form1Data) -> str:
@@ -5841,12 +5832,7 @@ class Form1Panel(wx.Panel):
 			f"  車軸数: {data.axle_count}",
 			f"  前軸重: {data.axle_weight_front} kg",
 			f"  後軸重: {data.axle_weight_rear} kg",
-			"",
-			"【備考】",
-			f"  {data.notes}",
-			"",
-			"=" * 50,
-		]
+]
 		return "\n".join(lines)
 	
 	def _get_main_frame(self):
@@ -5879,7 +5865,6 @@ class Form1Panel(wx.Panel):
 			'axle_count': self.axle_count.GetValue(),
 			'axle_weight_front': self.axle_weight_front.GetValue(),
 			'axle_weight_rear': self.axle_weight_rear.GetValue(),
-			'notes': self.notes.GetValue(),
 		}
 	
 	def set_state(self, state: dict):
@@ -5922,8 +5907,6 @@ class Form1Panel(wx.Panel):
 			self.axle_weight_front.SetValue(state['axle_weight_front'])
 		if 'axle_weight_rear' in state:
 			self.axle_weight_rear.SetValue(state['axle_weight_rear'])
-		if 'notes' in state:
-			self.notes.SetValue(state['notes'])
 	
 	def export_to_path(self, path):
 		"""指定パスにPDFを出力（一括出力用）"""
