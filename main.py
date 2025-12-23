@@ -4205,6 +4205,11 @@ class BrakeStrengthPanel(wx.Panel):
 			self.yield_pt.SetValue(state['yield_pt'])
 		if 'shear' in state:
 			self.shear.SetValue(state['shear'])
+	
+	def export_to_path(self, path):
+		"""プロジェクト保存時の個別PDF出力"""
+		if self.last:
+			self._export_pdf(path)
 
 class TowingSpecPanel(wx.Panel):
 	"""牽引車の諸元表を作成するパネル"""
