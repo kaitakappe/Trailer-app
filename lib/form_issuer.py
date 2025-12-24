@@ -84,6 +84,8 @@ class Form2Data:
         
         # 5条: 重量等
         self.vehicle_weight = ""  # 車両重量 (kg)
+        self.max_total_weight = ""  # 最大積載量含む総重量 (kg)
+        self.max_load_weight = ""  # 最大積載量 (kg)
         self.axle_weight_front = ""  # 前軸重 (kg)
         self.axle_weight_rear = ""  # 後軸重 (kg)
         
@@ -504,6 +506,12 @@ def auto_fill_form2_data(collected: dict) -> Form2Data:
                 data.vehicle_weight = str(int(vw_num)) if vw_num else ""
             except (ValueError, TypeError):
                 pass
+        if 'ml' in weight_inputs:
+            try:
+                ml_num = float(str(weight_inputs.get('ml', 0)).strip()) if weight_inputs.get('ml') else 0
+                data.max_load_weight = str(int(ml_num)) if ml_num else ""
+            except (ValueError, TypeError):
+                pass
         if 'fa' in weight_inputs:
             try:
                 fa_num = float(str(weight_inputs.get('fa', 0)).strip()) if weight_inputs.get('fa') else 0
@@ -513,7 +521,7 @@ def auto_fill_form2_data(collected: dict) -> Form2Data:
         if 'ra' in weight_inputs:
             try:
                 ra_num = float(str(weight_inputs.get('ra', 0)).strip()) if weight_inputs.get('ra') else 0
-                data.max_load_weight = str(int(ml_num)) if ml_num else ""
+                data.axle_weight_rear = str(int(ra_num)) if ra_num else ""
             except (ValueError, TypeError):
                 pass
         # 最大積載量含む総重量（vw + ml）

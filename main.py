@@ -35,6 +35,7 @@ from lib.form_issuer import (
 	Form1Data, Form2Data, collect_calculation_data, auto_fill_form1_data, auto_fill_form2_data, generate_form1_pdf, generate_form2_pdf,
 	OverviewData, auto_fill_overview_data, generate_overview_pdf
 )
+from lib.weight_calculation_sheet import WeightCalculationSheet
 
 # 共通結果表示ウィンドウ (全パネルから利用) / 車枠強度グラフウィンドウ
 RESULT_WINDOW = None
@@ -361,11 +362,214 @@ def _open_saved_pdf(path: str):
 		pass
 
 
+class SemiTrailerDiagramPanel(wx.Panel):
+	"""2軸セミトレーラーの簡易模式図（入力補助）。
+
+	画像ファイルを同梱せず、wxの描画で生成する。
+	"""
+
+	def __init__(self, parent, get_values):
+		super().__init__(parent, size=wx.Size(-1, 210))
+		self._get_values = get_values
+		self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+		self.Bind(wx.EVT_PAINT, self._on_paint)
+
+	def refresh(self):
+		self.Refresh(False)
+
+	def _on_paint(self, evt):
+		dc = wx.AutoBufferedPaintDC(self)
+		dc.Clear()
+		w, h = self.GetClientSize()
+
+		values = {}
+		try:
+			values = self._get_values() or {}
+		except Exception:
+			values = {}
+
+		def f(key):
+			v = values.get(key)
+			return None if v is None else float(v)
+
+		wb = f('wb')
+		a = f('os_a')
+		c = f('os_c')
+		d = f('os_d')
+		b = 0.0
+		osv: float | None = None
+		if a is not None and c is not None and d is not None:
+			a_f = float(a)
+			b_f = float(b)
+			c_f = float(c)
+			d_f = float(d)
+			osv = (a_f / 2.0) + b_f - c_f - d_f
+
+		pad = 10
+		base_y = int(h * 0.66)
+		front_x = pad + 15
+		rear_x = w - pad - 15
+		body_top = base_y - 45
+		body_bottom = base_y - 10
+
+		def draw_dim(
+			*,
+			x1: int,
+			x2: int,
+			y: int,
+			label: str,
+			ref_y1: int | None = None,
+			ref_y2: int | None = None,
+			pen: wx.Pen | None = None,
+		):
+			"""簡易寸法線（両矢印＋ラベル＋必要なら補助線）を描く。"""
+			if abs(x2 - x1) < 8:
+				return
+			if pen is None:
+				pen = wx.Pen(wx.Colour(0, 0, 0), 1)
+			dc.SetPen(pen)
+
+			# 補助線
+			if ref_y1 is not None:
+				dc.DrawLine(x1, ref_y1, x1, y)
+			if ref_y2 is not None:
+				dc.DrawLine(x2, ref_y2, x2, y)
+
+			# 寸法線
+			dc.DrawLine(x1, y, x2, y)
+
+			# 簡易矢印（端点）
+			arrow = 6
+			if x2 > x1:
+				dc.DrawLine(x1, y, x1 + arrow, y - 4)
+				dc.DrawLine(x1, y, x1 + arrow, y + 4)
+				dc.DrawLine(x2, y, x2 - arrow, y - 4)
+				dc.DrawLine(x2, y, x2 - arrow, y + 4)
+			else:
+				dc.DrawLine(x1, y, x1 - arrow, y - 4)
+				dc.DrawLine(x1, y, x1 - arrow, y + 4)
+				dc.DrawLine(x2, y, x2 + arrow, y - 4)
+				dc.DrawLine(x2, y, x2 + arrow, y + 4)
+
+			# ラベル
+			tw, th = dc.GetTextExtent(label)
+			cx = int((x1 + x2) / 2)
+			dc.DrawText(label, cx - int(tw / 2), y - th - 2)
+
+		# ペン設定
+		dc.SetPen(wx.Pen(wx.Colour(0, 0, 0), 2))
+		dc.SetBrush(wx.Brush(wx.Colour(240, 240, 240)))
+		# 荷台（長方形）
+		dc.DrawRectangle(front_x, body_top, max(10, rear_x - front_x), max(10, body_bottom - body_top))
+
+		# ヒッチカプラー（前方の点）
+		kingpin_x = front_x + 18
+		dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0)))
+		dc.DrawCircle(kingpin_x, body_bottom + 8, 3)
+		dc.DrawText('ヒッチカプラー', kingpin_x - 18, body_bottom + 14)
+
+		# 2軸（後方の2つの車輪）
+		axle2_x = rear_x - 30
+		axle1_x = axle2_x - 38
+		wheel_y = body_bottom + 12
+		for ax_x in (axle1_x, axle2_x):
+			dc.SetBrush(wx.Brush(wx.Colour(255, 255, 255)))
+			dc.DrawCircle(ax_x - 10, wheel_y, 8)
+			dc.DrawCircle(ax_x + 10, wheel_y, 8)
+			dc.SetPen(wx.Pen(wx.Colour(0, 0, 0), 2))
+			dc.DrawLine(ax_x, body_bottom, ax_x, wheel_y)
+		dc.DrawText('2軸', axle1_x - 6, wheel_y + 10)
+
+		# 寸法線（WB）
+		dim_y = body_top - 10
+		if w > 200:
+			start = kingpin_x
+			end = int((axle1_x + axle2_x) / 2)
+			label = 'W.B.'
+			if wb is not None:
+				label += f' = {wb:.0f}mm'
+			draw_dim(
+				x1=start,
+				x2=end,
+				y=dim_y,
+				label=label,
+				ref_y1=body_bottom,
+				ref_y2=body_bottom,
+			)
+
+		pen_solid = wx.Pen(wx.Colour(0, 0, 0), 1)
+		pen_dash = wx.Pen(wx.Colour(0, 0, 0), 1, style=wx.PENSTYLE_SHORT_DASH)
+		pen_dot = wx.Pen(wx.Colour(0, 0, 0), 1, style=wx.PENSTYLE_DOT)
+
+		a_label = 'A'
+		if a is not None:
+			a_label += f' = {a:.0f}mm'
+		c_label = 'C'
+		if c is not None:
+			c_label += f' = {c:.0f}mm'
+		d_label = 'D'
+		if d is not None:
+			d_label += f' = {d:.0f}mm'
+
+		# A: 荷台長さ（前端↔後端）
+		y_a = body_top - 34
+		draw_dim(
+			x1=front_x,
+			x2=rear_x,
+			y=y_a,
+			label=a_label,
+			ref_y1=body_top,
+			ref_y2=body_top,
+			pen=pen_solid,
+		)
+
+		# C: 後端↔後軸（後側の区間）
+		y_c = body_bottom + 26
+		draw_dim(
+			x1=axle2_x,
+			x2=rear_x,
+			y=y_c,
+			label=c_label,
+			ref_y1=body_bottom,
+			ref_y2=body_bottom,
+			pen=pen_dash,
+		)
+
+		# D: 軸間（2軸間の距離）
+		y_d = body_bottom + 60
+		draw_dim(
+			x1=axle1_x,
+			x2=axle2_x,
+			y=y_d,
+			label=d_label,
+			ref_y1=wheel_y,
+			ref_y2=wheel_y,
+			pen=pen_dash,
+		)
+
+		# A/B/C/D と O.S.
+		dc.SetPen(wx.Pen(wx.Colour(0, 0, 0), 1))
+		text_y = pad
+		line1 = 'O.S. = (A/2) - C - D'
+		if osv is not None:
+			line1 += f' = {osv:.0f}mm'
+		dc.DrawText(line1, pad, text_y)
+		text_y += 18
+		def fmt(name, val):
+			return f'{name}={val:.0f}mm' if val is not None else f'{name}=（未入力）'
+		dc.DrawText('  '.join([fmt('A', a), fmt('C', c), fmt('D', d)]), pad, text_y)
+
+
+
 class WeightCalcPanel(wx.Panel):
 	vw: wx.TextCtrl
 	ml: wx.TextCtrl
-	fa: wx.TextCtrl
-	ra: wx.TextCtrl
+	wb: wx.TextCtrl
+	os_a: wx.TextCtrl
+	os_c: wx.TextCtrl
+	os_d: wx.TextCtrl
+	payload_max: wx.TextCtrl
+	components_tsv: wx.TextCtrl
 	tc: wx.TextCtrl
 	tl: wx.TextCtrl
 	cw: wx.TextCtrl
@@ -376,10 +580,65 @@ class WeightCalcPanel(wx.Panel):
 	def __init__(self, parent):
 		super().__init__(parent)
 		v = wx.BoxSizer(wx.VERTICAL)
-		self.vw = self._add(v, '車両重量 [kg]:', '', '2000')
-		self.ml = self._add(v, '最大積載量 [kg]:', '', '1000')
-		self.fa = self._add(v, '前軸重量 [kg]:', '', '1200')
-		self.ra = self._add(v, '後軸重量 [kg]:', '', '1000')
+		v.Add(wx.StaticText(self, label='【計算用入力】（タイヤ強度比・接地圧の計算に使用）'), 0, wx.LEFT|wx.RIGHT|wx.TOP, 6)
+		self.vw = self._add(v, '車両重量 [kg]（空車時の総重量）:', '', '2000')
+		self.ml = self._add(v, '最大積載量 [kg]（計算用）:', '', '1000')
+		v.Add(wx.StaticLine(self), 0, wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP|wx.BOTTOM, 6)
+		v.Add(
+			wx.StaticText(
+				self,
+				label='【重量計算書(PDF)用入力】（PDF出力ボタンで使用）\n'
+				      '・単位は mm / kg です。\n'
+				      '・このトレーラーはBオフセット無し（B=0）として扱います。\n'
+				      '・O.S.は O.S.=(A/2)−C−D で計算されます。',
+			),
+			0,
+			wx.LEFT|wx.RIGHT|wx.TOP,
+			6,
+		)
+		# セミトレーラー重量計算書（添付様式）用
+		self.wb = self._add(v, 'W.B.(ホイールベース) [mm]（軸間距離）:', '', '7850')
+		self.payload_max = self._add(v, '最大積載量P [kg]（重量計算書用）:', '', '28000')
+		self.os_a = self._add(v, 'O.S.用 A [mm]（図面のA。式ではA/2を使用）:', '', '11450')
+		self.os_c = self._add(v, 'O.S.用 C [mm]（式では −C）:', '', '1730')
+		self.os_d = self._add(v, 'O.S.用 D [mm]（式では −D）:', '', '1360')
+		# 入力補助図（2軸セミトレーラー模式図）
+		self.diagram = SemiTrailerDiagramPanel(
+			self,
+			get_values=lambda: {
+				'wb': self._safe_float(self.wb.GetValue()),
+				'os_a': self._safe_float(self.os_a.GetValue()),
+				'os_c': self._safe_float(self.os_c.GetValue()),
+				'os_d': self._safe_float(self.os_d.GetValue()),
+			},
+		)
+		v.Add(self.diagram, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+		for ctrl in (self.wb, self.os_a, self.os_c, self.os_d):
+			ctrl.Bind(wx.EVT_TEXT, lambda _e: self.diagram.refresh())
+		v.Add(
+			wx.StaticText(
+				self,
+				label='部品表（TSV推奨。Excelからコピー可）\n'
+				      '書式: No\t名称\tWi(kg)\tLi(mm)\tHi(mm)\n'
+				      '・Wi: その部品の重量(kg)（重心に集中荷重として扱います）\n'
+				      '・Li: ヒッチカプラー基準の水平方向距離(mm)（前方=マイナス、後方=プラス）\n'
+				      '・Hi: 地面基準の高さ(mm)（部品の重心高さ。分からなければ概算でもOK）',
+			),
+			0,
+			wx.LEFT|wx.RIGHT|wx.TOP,
+			6,
+		)
+		self.components_tsv = wx.TextCtrl(self, value='', style=wx.TE_MULTILINE)
+		sample = 'No\t名称\tWi\tLi\tHi\n(1)\tエアカプラカバー\t5\t-700\t1510\n'
+		self.components_tsv.SetHint(sample)
+		self.components_tsv.SetToolTip(
+			'1行=1部品です。区切りはタブ(推奨)またはカンマ。\n'
+			'Wi: 重量(kg) / Li: ヒッチカプラー基準の水平距離(mm) / Hi: 地面からの高さ(mm)\n'
+			'Liの符号: 前方(ヒッチカプラーより前)=マイナス、後方=プラス\n\n'
+			+ sample
+		)
+		v.Add(self.components_tsv, 1, wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, 6)
+
 		self.tc = self._add(v, 'タイヤ本数:', '', '4')
 		self.tl = self._add(v, '推奨荷重/本 [kg]:', '', '600')
 		self.cw = self._add(v, '接地幅/本 [cm]:', '', '18')
@@ -397,6 +656,16 @@ class WeightCalcPanel(wx.Panel):
 		# メインウィンドウには結果テキストを表示しない（別ウィンドウのみ）
 		self.last_data = None  # 直近計算結果を保持
 		self.SetSizer(v)
+		self.diagram.refresh()
+
+	def _safe_float(self, s: str) -> float | None:
+		try:
+			ss = (s or '').strip()
+			if not ss:
+				return None
+			return float(ss)
+		except Exception:
+			return None
 
 	def _add(self, sizer, label, default='', hint='') -> wx.TextCtrl:
 		h = wx.BoxSizer(wx.HORIZONTAL)
@@ -408,215 +677,207 @@ class WeightCalcPanel(wx.Panel):
 		sizer.Add(h, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
 		return t
 
-	def on_calc(self, _):
+	def _derive_empty_axle_weights(self) -> tuple[float, float] | None:
+		"""部品表+W.B.が揃っている場合、空車時の前軸/後軸重量を導出する。"""
 		try:
-			data = compute_weight_metrics(
-				float(self.vw.GetValue()), float(self.ml.GetValue()), 
-				float(self.fa.GetValue()), float(self.ra.GetValue()),
-				int(self.tc.GetValue()), float(self.tl.GetValue()), float(self.cw.GetValue()),
-				self.ts_front.GetValue(), self.ts_rear.GetValue()
+			from lib.weight_calculation_sheet import parse_components_tsv
+			components = parse_components_tsv(self.components_tsv.GetValue())
+			wb = float(self.wb.GetValue() or 0)
+			if not components or wb <= 0:
+				return None
+			sheet = WeightCalculationSheet(
+				wheelbase_mm=wb,
+				payload_max_kg=float(self.payload_max.GetValue() or 0),
+				os_a_mm=float(self.os_a.GetValue() or 0),
+				os_b_mm=0.0,
+				os_c_mm=float(self.os_c.GetValue() or 0),
+				os_d_mm=float(self.os_d.GetValue() or 0),
+				components=components,
 			)
-		except ValueError:
-			wx.MessageBox('数値入力を確認してください。', '入力エラー', wx.ICON_ERROR); return
-		self.last_data = data
-		text = '\n'.join([
-			'◆ 重量計算結果 ◆',
-			f"総重量: {data['total_weight']:.1f} kg",
-			f"前軸タイヤ強度比: {data['front_strength_ratio']:.2f}",
-			f"後軸タイヤ強度比: {data['rear_strength_ratio']:.2f}",
-			f"前軸接地圧: {data['front_contact_pressure']:.1f} kg/cm (幅 {data['front_contact_width_cm_used']:.1f} cm)",
-			f"後軸接地圧: {data['rear_contact_pressure']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)",
-		])
-		show_result('重量計算結果', text)
+			return (sheet.empty_front_axle_kg(), sheet.empty_rear_axle_kg())
+		except Exception:
+			return None
+
+	def on_calc(self, _):
+		data = None
+		error_msgs: list[str] = []
+		axle_lines: list[str] = []
+		derived_fa_ra: tuple[float, float] | None = None
+
+		try:
+			from lib.weight_calculation_sheet import parse_components_tsv
+			components = parse_components_tsv(self.components_tsv.GetValue())
+			wb = float(self.wb.GetValue() or 0)
+			payload_max = float(self.payload_max.GetValue() or 0)
+			os_a = float(self.os_a.GetValue() or 0)
+			os_b = 0.0
+			os_c = float(self.os_c.GetValue() or 0)
+			os_d = float(self.os_d.GetValue() or 0)
+			if components and wb > 0:
+				sheet = WeightCalculationSheet(
+					wheelbase_mm=wb,
+					payload_max_kg=payload_max,
+					os_a_mm=os_a,
+					os_b_mm=os_b,
+					os_c_mm=os_c,
+					os_d_mm=os_d,
+					components=components,
+				)
+				wf0 = sheet.empty_front_axle_kg()
+				wr0 = sheet.empty_rear_axle_kg()
+				derived_fa_ra = (wf0, wr0)
+				osv = sheet.os_mm()
+				pf = (payload_max * osv / wb) if wb else 0.0
+				wf_loaded = wf0 + pf
+				wr_loaded = wr0 + (payload_max - pf)
+				L = sheet.cg_l_mm()
+				H = sheet.cg_h_mm()
+				Lr = float(int((L + 2.5) / 5.0) * 5) if L >= 0 else -float(int(((-L) + 2.5) / 5.0) * 5)
+				Hr = float(int((H + 2.5) / 5.0) * 5) if H >= 0 else -float(int(((-H) + 2.5) / 5.0) * 5)
+				axle_lines = [
+					'',
+					'◆ 前後軸重量分布（重量計算書ベース）◆',
+					f'空車: 前軸 Wf={wf0:.0f}kg  後軸 Wr={wr0:.0f}kg',
+					f'積車: 前軸 WF={wf_loaded:.0f}kg  後軸 WR={wr_loaded:.0f}kg',
+					f'Pf = P×O.S./W.B. = {pf:.0f}kg  (P={payload_max:.0f}kg, O.S.={osv:.0f}mm, W.B.={wb:.0f}mm)',
+					f'重心位置: L={L:.2f}mm ({Lr:.0f}mm)  H={H:.2f}mm ({Hr:.0f}mm)',
+				]
+			else:
+				error_msgs.append('【重量計算書(PDF)用入力】の部品表とW.B.を入力すると、空車時の前後軸重量を自動計算できます。')
+		except Exception:
+			error_msgs.append('【重量計算書(PDF)用入力】の数値/部品表を確認してください。')
+
+		try:
+			vw = float(self.vw.GetValue())
+			ml = float(self.ml.GetValue())
+			if derived_fa_ra is None:
+				derived_fa_ra = self._derive_empty_axle_weights()
+			if derived_fa_ra is None:
+				raise ValueError('空車時の前後軸重量を導出できません。部品表とW.B.を入力してください。')
+			fa, ra = derived_fa_ra
+			data = compute_weight_metrics(
+				vw,
+				ml,
+				fa,
+				ra,
+				int(self.tc.GetValue()),
+				float(self.tl.GetValue()),
+				float(self.cw.GetValue()),
+				self.ts_front.GetValue(),
+				self.ts_rear.GetValue(),
+			)
+		except Exception:
+			data = None
+			error_msgs.append('【計算用入力】の数値を確認してください。（空車時の前後軸重は部品表+W.B.から自動計算します）')
+
+		if data is None and not axle_lines:
+			wx.MessageBox('\n'.join(error_msgs) or '入力を確認してください。', '入力エラー', wx.ICON_ERROR)
+			return
+
+		lines: list[str] = []
+		if data is not None:
+			lines.extend(
+				[
+					'◆ 重量計算結果 ◆',
+					f"総重量: {data['total_weight']:.1f} kg",
+					f"前軸タイヤ強度比: {data['front_strength_ratio']:.2f}",
+					f"後軸タイヤ強度比: {data['rear_strength_ratio']:.2f}",
+					f"前軸接地圧: {data['front_contact_pressure']:.1f} kg/cm (幅 {data['front_contact_width_cm_used']:.1f} cm)",
+					f"後軸接地圧: {data['rear_contact_pressure']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)",
+				]
+			)
+
+		lines.extend(axle_lines)
+		# GUI上の結果表示は行わず、PDFに結果を載せる運用を想定
+		self.last_data = data if data is not None else {'axle_distribution_only': True}
 
 	def on_export_pdf(self, _):
-		if self.last_data is None:
-			wx.MessageBox('先に計算を実行してください。', 'PDF出力', wx.ICON_INFORMATION); return
 		if not _REPORTLAB_AVAILABLE:
 			wx.MessageBox('ReportLabが未インストールです。インストール後再試行してください。', 'PDF出力不可', wx.ICON_ERROR); return
-		with wx.FileDialog(self, message='PDF保存', wildcard='PDF files (*.pdf)|*.pdf', style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, defaultFile='重量計算結果.pdf') as dlg:
+		with wx.FileDialog(self, message='PDF保存', wildcard='PDF files (*.pdf)|*.pdf', style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, defaultFile='重量計算書.pdf') as dlg:
 			if dlg.ShowModal() != wx.ID_OK:
 				return
 			path = dlg.GetPath()
 		try:
-			c = _pdf_canvas.Canvas(path, pagesize=_A4)
-			w, h = _A4
-			# 日本語フォント探索
-			font_name = 'Helvetica'
-			for f in ['C:/Windows/Fonts/msgothic.ttc', 'C:/Windows/Fonts/meiryo.ttc', 'C:/Windows/Fonts/yugothic.ttf', 'ipaexg.ttf', 'ipaexm.ttf', 'fonts/ipaexg.ttf', 'fonts/ipaexm.ttf']:
-				if os.path.exists(f):
-					try:
-						_pdfmetrics.registerFont(_TTFont('JPFont', f))
-						font_name = 'JPFont'
-						break
-					except Exception:
-						pass
+			# 添付様式（セミトレーラー重量計算書）用入力
+			from lib.weight_calculation_sheet import parse_components_tsv
+			components = parse_components_tsv(self.components_tsv.GetValue())
+			if not components:
+				ex = 'No\t名称\tWi\tLi\tHi\n(1)\tエアカプラカバー\t5\t-700\t1510\n'
+				wx.MessageBox('部品表が空、または形式が合っていません。\n\n例:\n' + ex, '入力不足', wx.ICON_ERROR); return
+			wb = float(self.wb.GetValue() or 0)
+			payload_max = float(self.payload_max.GetValue() or 0)
+			os_a = float(self.os_a.GetValue() or 0)
+			os_b = 0.0
+			os_c = float(self.os_c.GetValue() or 0)
+			os_d = float(self.os_d.GetValue() or 0)
+			if wb <= 0:
+				wx.MessageBox('W.B.(ホイールベース)[mm] は 0 より大きい数値を入力してください。', '入力エラー', wx.ICON_ERROR); return
 
-			def draw_table(x, y, col_widths, row_height, data_rows, header_font=font_name, body_font=font_name, header_size=11, body_size=10, title=None):
-				"""罫線付きテーブル描画。data_rows: [ [cell,...], ... ]"""
-				# タイトル
-				if title:
-					c.drawString(x, y + 6, title)
-					y -= 14
-				cols = len(col_widths)
-				rows = len(data_rows)
-				# 外枠
-				width_total = sum(col_widths)
-				c.setLineWidth(0.7)
-				c.rect(x, y - rows * row_height, width_total, rows * row_height)
-				# 縦線
-				cx = x
-				for wcol in col_widths[:-1]:
-					cx += wcol
-					c.line(cx, y, cx, y - rows * row_height)
-				# 横線
-				ry = y
-				for _ in range(rows - 1):
-					ry -= row_height
-					c.line(x, ry, x + width_total, ry)
-				# テキスト
-				for r, row in enumerate(data_rows):
-					cy = y - (r + 1) * row_height + 4
-					c.setFont(body_font if r > 0 else header_font, body_size if r > 0 else header_size)
-					cx = x + 3
-					for ci, val in enumerate(row):
-						c.drawString(cx, cy, str(val))
-						cx += col_widths[ci]
-				return y - rows * row_height - 30  # 次のブロック用Y
-
-			# データ計算
-			total_w = self.last_data['total_weight']
-			front_ratio = self.last_data['front_strength_ratio']
-			rear_ratio = self.last_data['rear_strength_ratio']
-			front_pressure = self.last_data['front_contact_pressure']
-			rear_pressure = self.last_data['rear_contact_pressure']
-
-			# 1. 重量計算書
-			c.setFont(font_name, 14)
-			c.drawString(40, h - 50, '重量計算書')
-			start_y = h - 70
-			col_w1 = [120, 90, 90, 90]
-			rows_w = [
-				['', '合計(kg)', '前軸(kg)', '後軸(kg)'],
-				['車両重量', f'{self.vw.GetValue()}', f'{self.fa.GetValue()}', f'{self.ra.GetValue()}'],
-				['最大積載量', f'{self.ml.GetValue()}', '', ''],
-				['車両総重量', f'{total_w:.1f}', '', '']
-			]
-			after_y = draw_table(40, start_y, col_w1, 18, rows_w)
-
-			# 2. タイヤ強度計算書
-			rows_tire_strength = [
-				['', 'タイヤサイズ', '本数', '推奨荷重 (kg)', '荷重割合 (%)'],
-				['前軸', self.ts_front.GetValue(), self.tc.GetValue(), f'{self.tl.GetValue()}', f'{front_ratio*100:.1f}'],
-				['後軸', self.ts_rear.GetValue(), self.tc.GetValue(), f'{self.tl.GetValue()}', f'{rear_ratio*100:.1f}'],
-			]
-			col_w2 = [70, 110, 60, 120, 110]
-			after_y2 = draw_table(40, after_y, col_w2, 18, rows_tire_strength, title='タイヤ強度計算書')
-
-			# 3. タイヤ接地圧計算書
-			rows_pressure = [
-				['', 'タイヤサイズ', '本数', '接地幅 (cm)', '接地圧 (kg/cm)'],
-				['前軸', self.ts_front.GetValue(), self.tc.GetValue(), f'{self.cw.GetValue()}', f'{front_pressure:.1f}'],
-				['後軸', self.ts_rear.GetValue(), self.tc.GetValue(), f'{self.cw.GetValue()}', f'{rear_pressure:.1f}'],
-			]
-			col_w3 = [70, 110, 60, 120, 120]
-			after_y3 = draw_table(40, after_y2, col_w3, 18, rows_pressure, title='タイヤ接地圧計算書')
-			c.setFont(font_name, 9)
-			c.drawString(40 + sum(col_w3) + 5, after_y2 + 5, '≦200kg/cm')
-
-			c.showPage(); c.save()
-			_open_saved_pdf(path)
-			wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+			sheet = WeightCalculationSheet(
+				wheelbase_mm=wb,
+				payload_max_kg=payload_max,
+				os_a_mm=os_a,
+				os_b_mm=os_b,
+				os_c_mm=os_c,
+				os_d_mm=os_d,
+				components=components,
+			)
+			
+			if sheet.generate_pdf(path):
+				_open_saved_pdf(path)
+				wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+			else:
+				wx.MessageBox('PDF生成に失敗しました。', 'エラー', wx.ICON_ERROR)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力中にエラー: {e}', 'エラー', wx.ICON_ERROR)
 
 	def export_to_path(self, path):
 		"""ダイアログ無しで重量計算書PDFを出力"""
-		if self.last_data is None or not _REPORTLAB_AVAILABLE:
+		if not _REPORTLAB_AVAILABLE:
 			return
 		try:
-			c = _pdf_canvas.Canvas(path, pagesize=_A4)
-			w, h = _A4
-			font_name = 'Helvetica'
-			for f in ['C:/Windows/Fonts/msgothic.ttc', 'C:/Windows/Fonts/meiryo.ttc', 'C:/Windows/Fonts/yugothic.ttf', 'ipaexg.ttf', 'ipaexm.ttf', 'fonts/ipaexg.ttf', 'fonts/ipaexm.ttf']:
-				if os.path.exists(f):
-					try:
-						_pdfmetrics.registerFont(_TTFont('JPFont', f)); font_name = 'JPFont'; break
-					except Exception:
-						pass
-			def draw_table(x, y, col_widths, row_height, data_rows, header_font=font_name, body_font=font_name, header_size=11, body_size=10, title=None):
-				if title:
-					c.drawString(x, y + 6, title)
-					y -= 14
-				cols = len(col_widths)
-				rows = len(data_rows)
-				width_total = sum(col_widths)
-				c.setLineWidth(0.7)
-				c.rect(x, y - rows * row_height, width_total, rows * row_height)
-				cx = x
-				for wcol in col_widths[:-1]:
-					cx += wcol
-					c.line(cx, y, cx, y - rows * row_height)
-				ry = y
-				for _ in range(rows - 1):
-					ry -= row_height
-					c.line(x, ry, x + width_total, ry)
-				for r, row in enumerate(data_rows):
-					cy = y - (r + 1) * row_height + 4
-					c.setFont(body_font if r > 0 else header_font, body_size if r > 0 else header_size)
-					cx = x + 3
-					for ci, val in enumerate(row):
-						c.drawString(cx, cy, str(val))
-						cx += col_widths[ci]
-				return y - rows * row_height - 30
-			v = self.last_data
-			# 1. 重量計算書
-			c.setFont(font_name, 14)
-			c.drawString(40, h - 50, '重量計算書')
-			start_y = h - 70
-			col_w1 = [120, 90, 90, 90]
-			rows_w = [
-				['', '合計(kg)', '前軸(kg)', '後軸(kg)'],
-				['車両重量', f'{self.vw.GetValue()}', f'{self.fa.GetValue()}', f'{self.ra.GetValue()}'],
-				['最大積載量', f'{self.ml.GetValue()}', '', ''],
-				['車両総重量', f"{v['total_weight']:.1f}", '', '']
-			]
-			after_y = draw_table(40, start_y, col_w1, 18, rows_w)
-			# 2. タイヤ強度
-			rows_tire_strength = [
-				['', 'タイヤサイズ', '本数', '推奨荷重 (kg)', '荷重割合 (%)'],
-				['前軸', self.ts_front.GetValue(), self.tc.GetValue(), f'{self.tl.GetValue()}', f"{v['front_strength_ratio']*100:.1f}"],
-				['後軸', self.ts_rear.GetValue(), self.tc.GetValue(), f'{self.tl.GetValue()}', f"{v['rear_strength_ratio']*100:.1f}"]
-			]
-			col_w2 = [70, 110, 60, 120, 110]
-			after_y2 = draw_table(40, after_y, col_w2, 18, rows_tire_strength, title='タイヤ強度計算書')
-			# 3. タイヤ接地圧
-			rows_pressure = [
-				['', 'タイヤサイズ', '本数', '接地幅 (cm)', '接地圧 (kg/cm)'],
-				['前軸', self.ts_front.GetValue(), self.tc.GetValue(), f'{self.cw.GetValue()}', f"{v['front_contact_pressure']:.1f}"],
-				['後軸', self.ts_rear.GetValue(), self.tc.GetValue(), f'{self.cw.GetValue()}', f"{v['rear_contact_pressure']:.1f}"]
-			]
-			col_w3 = [70, 110, 60, 120, 120]
-			after_y3 = draw_table(40, after_y2, col_w3, 18, rows_pressure, title='タイヤ接地圧計算書')
-			c.setFont(font_name, 9)
-			c.drawString(40 + sum(col_w3) + 5, after_y2 + 5, '≦200kg/cm')
-			# 根拠・考え方
-			y2 = after_y3 - 8
-			c.setFont(font_name, 11); c.drawString(40, y2, '根拠・考え方'); y2 -= 14; c.setFont(font_name, 9)
-			c.drawString(45, y2, '・必要制動力 F は、質量×重力加速度×所要減速度係数に比例します。'); y2 -= 12
-			c.drawString(45, y2, '・係数 k は車種想定に応じた目安（乗用車0.65/トラック・バス0.5）を用いています。'); y2 -= 12
-			c.drawString(45, y2, '・転倒安定角は幾何関係より tanθ=(T/2)/H。接地圧目安≦200kg/cmは安全側の設計目安です。')
-			c.showPage(); c.save()
+			from lib.weight_calculation_sheet import parse_components_tsv
+			components = parse_components_tsv(self.components_tsv.GetValue())
+			if not components:
+				return
+			wb = float(self.wb.GetValue() or 0)
+			payload_max = float(self.payload_max.GetValue() or 0)
+			os_a = float(self.os_a.GetValue() or 0)
+			os_b = 0.0
+			os_c = float(self.os_c.GetValue() or 0)
+			os_d = float(self.os_d.GetValue() or 0)
+			if wb <= 0:
+				return
+			sheet = WeightCalculationSheet(
+				wheelbase_mm=wb,
+				payload_max_kg=payload_max,
+				os_a_mm=os_a,
+				os_b_mm=os_b,
+				os_c_mm=os_c,
+				os_d_mm=os_d,
+				components=components,
+			)
+			sheet.generate_pdf(path)
 		except Exception:
 			pass
 
 	def get_state(self) -> dict:
 		"""パネルの状態を保存"""
+		derived = self._derive_empty_axle_weights()
+		fa_s = f"{derived[0]:.0f}" if derived else ''
+		ra_s = f"{derived[1]:.0f}" if derived else ''
 		return {
 			'vw': self.vw.GetValue(),
 			'ml': self.ml.GetValue(),
-			'fa': self.fa.GetValue(),
-			'ra': self.ra.GetValue(),
+			'fa': fa_s,
+			'ra': ra_s,
+			'wb': self.wb.GetValue(),
+			'payload_max': self.payload_max.GetValue(),
+			'os_a': self.os_a.GetValue(),
+			'os_c': self.os_c.GetValue(),
+			'os_d': self.os_d.GetValue(),
+			'components_tsv': self.components_tsv.GetValue(),
 			'tc': self.tc.GetValue(),
 			'tl': self.tl.GetValue(),
 			'cw': self.cw.GetValue(),
@@ -630,14 +891,195 @@ class WeightCalcPanel(wx.Panel):
 		if not state: return
 		if 'vw' in state: self.vw.SetValue(str(state['vw']))
 		if 'ml' in state: self.ml.SetValue(str(state['ml']))
-		if 'fa' in state: self.fa.SetValue(str(state['fa']))
-		if 'ra' in state: self.ra.SetValue(str(state['ra']))
+		if 'wb' in state: self.wb.SetValue(str(state['wb']))
+		if 'payload_max' in state: self.payload_max.SetValue(str(state['payload_max']))
+		if 'os_a' in state: self.os_a.SetValue(str(state['os_a']))
+		if 'os_c' in state: self.os_c.SetValue(str(state['os_c']))
+		if 'os_d' in state: self.os_d.SetValue(str(state['os_d']))
+		if 'components_tsv' in state: self.components_tsv.SetValue(str(state['components_tsv']))
 		if 'tc' in state: self.tc.SetValue(str(state['tc']))
 		if 'tl' in state: self.tl.SetValue(str(state['tl']))
 		if 'cw' in state: self.cw.SetValue(str(state['cw']))
 		if 'ts_front' in state: self.ts_front.SetValue(str(state['ts_front']))
 		if 'ts_rear' in state: self.ts_rear.SetValue(str(state['ts_rear']))
 		if 'last_data' in state: self.last_data = state['last_data']
+
+
+class TireLoadContactPanel(wx.Panel):
+	"""タイヤ負荷率及び接地圧計算書（PDF出力専用）。"""
+
+	target_label: wx.ComboBox
+	tire_size: wx.TextCtrl
+	tire_count: wx.TextCtrl
+	wr_kg: wx.TextCtrl
+	recommended_per_tire: wx.TextCtrl
+	install_width_cm: wx.TextCtrl
+
+	def __init__(self, parent):
+		super().__init__(parent)
+		v = wx.BoxSizer(wx.VERTICAL)
+		v.Add(
+			wx.StaticText(
+				self,
+				label='【タイヤ負荷率及び接地圧計算書(PDF)】\n'
+				      '例の形式（分数表示＋計算過程）でPDFを出力します。\n'
+				      'Wr は対象軸の荷重（例: 後輪/後軸の荷重）を入力してください。',
+			),
+			0,
+			wx.LEFT | wx.RIGHT | wx.TOP,
+			6,
+		)
+
+		grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
+		grid.AddGrowableCol(1, 1)
+
+		grid.Add(wx.StaticText(self, label='対象:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.target_label = wx.ComboBox(self, choices=['後輪', '前輪', 'その他'], style=wx.CB_READONLY)
+		self.target_label.SetSelection(0)
+		grid.Add(self.target_label, 1, wx.EXPAND)
+
+		grid.Add(wx.StaticText(self, label='タイヤ表記（例: 11R22.5-14PR）:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.tire_size = wx.TextCtrl(self, value='11R22.5-14PR')
+		grid.Add(self.tire_size, 1, wx.EXPAND)
+
+		grid.Add(wx.StaticText(self, label='タイヤ本数 n [本]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.tire_count = wx.TextCtrl(self, value='12', style=wx.TE_RIGHT)
+		grid.Add(self.tire_count, 1, wx.EXPAND)
+
+		grid.Add(wx.StaticText(self, label='対象軸荷重 Wr [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.wr_kg = wx.TextCtrl(self, value='24830', style=wx.TE_RIGHT)
+		grid.Add(self.wr_kg, 1, wx.EXPAND)
+
+		grid.Add(wx.StaticText(self, label='推奨荷重/本 [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.recommended_per_tire = wx.TextCtrl(self, value='2500', style=wx.TE_RIGHT)
+		grid.Add(self.recommended_per_tire, 1, wx.EXPAND)
+
+		grid.Add(wx.StaticText(self, label='設置幅/本 [cm]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+		self.install_width_cm = wx.TextCtrl(self, value='20.0', style=wx.TE_RIGHT)
+		grid.Add(self.install_width_cm, 1, wx.EXPAND)
+
+		v.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+		btn_row = wx.BoxSizer(wx.HORIZONTAL)
+		btn_pdf = wx.Button(self, label='PDF出力')
+		btn_pdf.Bind(wx.EVT_BUTTON, self.on_export_pdf)
+		btn_row.Add(btn_pdf, 0)
+		v.Add(btn_row, 0, wx.ALIGN_CENTER | wx.ALL, 10)
+		self.SetSizer(v)
+
+	def _collect_input(self):
+		try:
+			n = int(float(self.tire_count.GetValue() or 0))
+			wr = float(self.wr_kg.GetValue() or 0)
+			rec = float(self.recommended_per_tire.GetValue() or 0)
+			wcm = float(self.install_width_cm.GetValue() or 0)
+			if n <= 0:
+				raise ValueError('タイヤ本数 n は 1 以上で入力してください。')
+			if wr <= 0:
+				raise ValueError('Wr は 0 より大きい数値で入力してください。')
+			if rec <= 0:
+				raise ValueError('推奨荷重/本 は 0 より大きい数値で入力してください。')
+			if wcm <= 0:
+				raise ValueError('設置幅/本 は 0 より大きい数値で入力してください。')
+			return {
+				'target_label': self.target_label.GetValue(),
+				'tire_size_text': self.tire_size.GetValue(),
+				'tire_count_n': n,
+				'axle_load_wr_kg': wr,
+				'recommended_load_per_tire_kg': rec,
+				'install_width_per_tire_cm': wcm,
+			}
+		except Exception as e:
+			wx.MessageBox(str(e), '入力エラー', wx.ICON_ERROR)
+			return None
+
+	def on_export_pdf(self, _):
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。インストール後再試行してください。', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		data = self._collect_input()
+		if data is None:
+			return
+		with wx.FileDialog(
+			self,
+			message='PDF保存',
+			wildcard='PDF files (*.pdf)|*.pdf',
+			style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+			defaultFile='タイヤ負荷率及び接地圧計算書.pdf',
+		) as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			path = dlg.GetPath()
+		try:
+			from lib.tire_load_contact_sheet import TireLoadContactSheet, TireLoadContactSheetInput
+			sheet = TireLoadContactSheet(
+				data=TireLoadContactSheetInput(**data),
+			)
+			if sheet.generate_pdf(path):
+				_open_saved_pdf(path)
+				wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+			else:
+				wx.MessageBox('PDF生成に失敗しました。', 'エラー', wx.ICON_ERROR)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力中にエラー: {e}', 'エラー', wx.ICON_ERROR)
+
+	def export_to_path(self, path: str):
+		"""ダイアログ無しでPDFを出力（未入力時は何もしない）。"""
+		if not _REPORTLAB_AVAILABLE:
+			return
+		try:
+			# 一括出力では未入力でも止めない
+			n = int(float(self.tire_count.GetValue() or 0))
+			wr = float(self.wr_kg.GetValue() or 0)
+			rec = float(self.recommended_per_tire.GetValue() or 0)
+			wcm = float(self.install_width_cm.GetValue() or 0)
+			if n <= 0 or wr <= 0 or rec <= 0 or wcm <= 0:
+				return
+			from lib.tire_load_contact_sheet import TireLoadContactSheet, TireLoadContactSheetInput
+			sheet = TireLoadContactSheet(
+				data=TireLoadContactSheetInput(
+					target_label=self.target_label.GetValue(),
+					tire_size_text=self.tire_size.GetValue(),
+					tire_count_n=n,
+					axle_load_wr_kg=wr,
+					recommended_load_per_tire_kg=rec,
+					install_width_per_tire_cm=wcm,
+				),
+			)
+			sheet.generate_pdf(path)
+		except Exception:
+			return
+
+	def get_state(self) -> dict:
+		return {
+			'target_label': self.target_label.GetValue(),
+			'tire_size': self.tire_size.GetValue(),
+			'tire_count': self.tire_count.GetValue(),
+			'wr_kg': self.wr_kg.GetValue(),
+			'recommended_per_tire': self.recommended_per_tire.GetValue(),
+			'install_width_cm': self.install_width_cm.GetValue(),
+		}
+
+	def set_state(self, state: dict) -> None:
+		if not state:
+			return
+		try:
+			if 'target_label' in state:
+				val = str(state['target_label'])
+				if val in ('後輪', '前輪', 'その他'):
+					self.target_label.SetValue(val)
+			if 'tire_size' in state:
+				self.tire_size.SetValue(str(state['tire_size']))
+			if 'tire_count' in state:
+				self.tire_count.SetValue(str(state['tire_count']))
+			if 'wr_kg' in state:
+				self.wr_kg.SetValue(str(state['wr_kg']))
+			if 'recommended_per_tire' in state:
+				self.recommended_per_tire.SetValue(str(state['recommended_per_tire']))
+			if 'install_width_cm' in state:
+				self.install_width_cm.SetValue(str(state['install_width_cm']))
+		except Exception:
+			return
 
 
 
@@ -1329,7 +1771,7 @@ class StabilityAnglePanel(wx.Panel):
 			('W2', '車両重量 W₂ (kg)'),
 			('W2f', '第5輪重量2f₂f (kg)'),
 			('W2r', '後軸重量 W₂ (kg)'),
-			('T2f', 'キングピン安 T2f₂f (m)'),
+			('T2f', 'ヒッチカプラー安 T2f₂f (m)'),
 			('T2r', '後輪輪距(最外側) r₂r (m)'),
 			('H2', '重心高 H₂ (m)')
 		]
@@ -1505,7 +1947,7 @@ class StabilityAnglePanel(wx.Panel):
 				('車両重量', f"W₂", f"({W2:.1f})", 'kg'),
 				('第5輪重量', f"W₂f", f"({W2f:.1f})", 'kg'),
 				('後軸重量', f"W₂r", f"({W2r:.1f})", 'kg'),
-				('キングピン安定幅 T₂f = T₁r', f"({T2f:.3f})", 'm'),
+				('ヒッチカプラー安定幅 T₂f = T₁r', f"({T2f:.3f})", 'm'),
 				('後輪輪距(最外側)', f"T₂r", f"({T2r:.3f})", 'm'),
 				('重心高', f"H₂", f"({H2:.3f})", 'm'),
 			]
@@ -1524,7 +1966,7 @@ class StabilityAnglePanel(wx.Panel):
 				(f'車両重量  W₂', f"{W2:.1f}", 'kg'),
 				(f'第5輪重量  W₂f', f"{W2f:.1f}", 'kg'),
 				(f'後軸重量  W₂r', f"{W2r:.1f}", 'kg'),
-				(f'キングピン安定幅 T₂f = T₁r', f"{T2f:.3f}", 'm'),
+				(f'ヒッチカプラー安定幅 T₂f = T₁r', f"{T2f:.3f}", 'm'),
 				(f'後輪輪距(最外側) T₂r', f"{T2r:.3f}", 'm'),
 				(f'重心高  H₂', f"{H2:.3f}", 'm'),
 			]
@@ -1681,7 +2123,7 @@ class StabilityAnglePanel(wx.Panel):
 				(f'車両重量  W₂', f"{W2:.1f}", 'kg'),
 				(f'第5輪重量  W₂f', f"{W2f:.1f}", 'kg'),
 				(f'後軸重量  W₂r', f"{W2r:.1f}", 'kg'),
-				(f'キングピン安定幅 T₂f = T₁r', f"{T2f:.3f}", 'm'),
+				(f'ヒッチカプラー安定幅 T₂f = T₁r', f"{T2f:.3f}", 'm'),
 				(f'後輪輪距(最外側) T₂r', f"{T2r:.3f}", 'm'),
 				(f'重心高  H₂', f"{H2:.3f}", 'm'),
 			]
@@ -6398,6 +6840,7 @@ class MainFrame(wx.Frame):
 		self.nb=wx.Notebook(self, style=wx.NB_MULTILINE)
 		self.panels = [
 			('重量計算', WeightCalcPanel(self.nb)),
+			('タイヤ負荷率・接地圧', TireLoadContactPanel(self.nb)),
 			('連結仕様', TrailerSpecPanel(self.nb)),
 			('安定角度', StabilityAnglePanel(self.nb)),
 			('旋回半径', TurningRadiusPanel(self.nb)),
@@ -6410,8 +6853,6 @@ class MainFrame(wx.Frame):
 			('板ばね分布', TwoAxleLeafSpringPanel(self.nb)),
 			('安全チェーン', SafetyChainPanel(self.nb)),
 			('保安基準適合検討表', Form2Panel(self.nb)),
-			('1号様式', Form1Panel(self.nb)),
-			('２号様式', OverviewPanel(self.nb)),
 		]
 		self.original_titles = [title for title, _ in self.panels]
 		for title, panel in self.panels:
