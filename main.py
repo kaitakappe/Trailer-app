@@ -908,12 +908,17 @@ class WeightCalcPanel(wx.Panel):
 class TireLoadContactPanel(wx.Panel):
 	"""タイヤ負荷率及び接地圧計算書（PDF出力専用）。"""
 
-	target_label: wx.ComboBox
-	tire_size: wx.TextCtrl
-	tire_count: wx.TextCtrl
-	wr_kg: wx.TextCtrl
-	recommended_per_tire: wx.TextCtrl
-	install_width_cm: wx.TextCtrl
+	front_tire_size: wx.TextCtrl
+	front_tire_count: wx.TextCtrl
+	front_wr_kg: wx.TextCtrl
+	front_recommended_per_tire: wx.TextCtrl
+	front_install_width_cm: wx.TextCtrl
+
+	rear_tire_size: wx.TextCtrl
+	rear_tire_count: wx.TextCtrl
+	rear_wr_kg: wx.TextCtrl
+	rear_recommended_per_tire: wx.TextCtrl
+	rear_install_width_cm: wx.TextCtrl
 
 	def __init__(self, parent):
 		super().__init__(parent)
@@ -923,42 +928,74 @@ class TireLoadContactPanel(wx.Panel):
 				self,
 				label='【タイヤ負荷率及び接地圧計算書(PDF)】\n'
 				      '例の形式（分数表示＋計算過程）でPDFを出力します。\n'
-				      'Wr は対象軸の荷重（例: 後輪/後軸の荷重）を入力してください。',
+				      '前軸・後軸の2軸分を同時に出力します。',
 			),
 			0,
 			wx.LEFT | wx.RIGHT | wx.TOP,
 			6,
 		)
 
-		grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
-		grid.AddGrowableCol(1, 1)
+		def add_section(title: str, defaults: dict[str, str]):
+			box = wx.StaticBoxSizer(wx.StaticBox(self, label=title), wx.VERTICAL)
+			grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
+			grid.AddGrowableCol(1, 1)
+			# 対象は固定（前軸/後軸）なので入力は持たない
+			grid.Add(wx.StaticText(self, label='タイヤ表記（例: 11R22.5-14PR）:'), 0, wx.ALIGN_CENTER_VERTICAL)
+			tire_size = wx.TextCtrl(self, value=defaults.get('tire_size', ''))
+			grid.Add(tire_size, 1, wx.EXPAND)
 
-		grid.Add(wx.StaticText(self, label='対象:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.target_label = wx.ComboBox(self, choices=['後輪', '前輪', 'その他'], style=wx.CB_READONLY)
-		self.target_label.SetSelection(0)
-		grid.Add(self.target_label, 1, wx.EXPAND)
+			grid.Add(wx.StaticText(self, label='タイヤ本数 n [本]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+			tire_count = wx.TextCtrl(self, value=defaults.get('tire_count', ''), style=wx.TE_RIGHT)
+			grid.Add(tire_count, 1, wx.EXPAND)
 
-		grid.Add(wx.StaticText(self, label='タイヤ表記（例: 11R22.5-14PR）:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.tire_size = wx.TextCtrl(self, value='11R22.5-14PR')
-		grid.Add(self.tire_size, 1, wx.EXPAND)
+			grid.Add(wx.StaticText(self, label='軸荷重 Wr [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+			wr_kg = wx.TextCtrl(self, value=defaults.get('wr_kg', ''), style=wx.TE_RIGHT)
+			grid.Add(wr_kg, 1, wx.EXPAND)
 
-		grid.Add(wx.StaticText(self, label='タイヤ本数 n [本]:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.tire_count = wx.TextCtrl(self, value='12', style=wx.TE_RIGHT)
-		grid.Add(self.tire_count, 1, wx.EXPAND)
+			grid.Add(wx.StaticText(self, label='推奨荷重/本 [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+			rec = wx.TextCtrl(self, value=defaults.get('recommended_per_tire', ''), style=wx.TE_RIGHT)
+			grid.Add(rec, 1, wx.EXPAND)
 
-		grid.Add(wx.StaticText(self, label='対象軸荷重 Wr [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.wr_kg = wx.TextCtrl(self, value='24830', style=wx.TE_RIGHT)
-		grid.Add(self.wr_kg, 1, wx.EXPAND)
+			grid.Add(wx.StaticText(self, label='設置幅/本 [cm]:'), 0, wx.ALIGN_CENTER_VERTICAL)
+			wcm = wx.TextCtrl(self, value=defaults.get('install_width_cm', ''), style=wx.TE_RIGHT)
+			grid.Add(wcm, 1, wx.EXPAND)
 
-		grid.Add(wx.StaticText(self, label='推奨荷重/本 [kg]:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.recommended_per_tire = wx.TextCtrl(self, value='2500', style=wx.TE_RIGHT)
-		grid.Add(self.recommended_per_tire, 1, wx.EXPAND)
+			box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+			v.Add(box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+			return tire_size, tire_count, wr_kg, rec, wcm
 
-		grid.Add(wx.StaticText(self, label='設置幅/本 [cm]:'), 0, wx.ALIGN_CENTER_VERTICAL)
-		self.install_width_cm = wx.TextCtrl(self, value='20.0', style=wx.TE_RIGHT)
-		grid.Add(self.install_width_cm, 1, wx.EXPAND)
-
-		v.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+		(
+			self.front_tire_size,
+			self.front_tire_count,
+			self.front_wr_kg,
+			self.front_recommended_per_tire,
+			self.front_install_width_cm,
+		) = add_section(
+			'前軸',
+			{
+				'tire_size': '11R22.5-14PR',
+				'tire_count': '2',
+				'wr_kg': '6000',
+				'recommended_per_tire': '2500',
+				'install_width_cm': '20.0',
+			},
+		)
+		(
+			self.rear_tire_size,
+			self.rear_tire_count,
+			self.rear_wr_kg,
+			self.rear_recommended_per_tire,
+			self.rear_install_width_cm,
+		) = add_section(
+			'後軸',
+			{
+				'tire_size': '11R22.5-14PR',
+				'tire_count': '12',
+				'wr_kg': '24830',
+				'recommended_per_tire': '2500',
+				'install_width_cm': '20.0',
+			},
+		)
 
 		btn_row = wx.BoxSizer(wx.HORIZONTAL)
 		btn_pdf = wx.Button(self, label='PDF出力')
@@ -967,28 +1004,49 @@ class TireLoadContactPanel(wx.Panel):
 		v.Add(btn_row, 0, wx.ALIGN_CENTER | wx.ALL, 10)
 		self.SetSizer(v)
 
-	def _collect_input(self):
-		try:
-			n = int(float(self.tire_count.GetValue() or 0))
-			wr = float(self.wr_kg.GetValue() or 0)
-			rec = float(self.recommended_per_tire.GetValue() or 0)
-			wcm = float(self.install_width_cm.GetValue() or 0)
+	def _collect_inputs(self):
+		def parse_one(prefix: str, label: str, tire_size, tire_count, wr_kg, rec, wcm):
+			n = int(float(tire_count.GetValue() or 0))
+			wr = float(wr_kg.GetValue() or 0)
+			rec_v = float(rec.GetValue() or 0)
+			wcm_v = float(wcm.GetValue() or 0)
 			if n <= 0:
-				raise ValueError('タイヤ本数 n は 1 以上で入力してください。')
+				raise ValueError(f'{label}: タイヤ本数 n は 1 以上で入力してください。')
 			if wr <= 0:
-				raise ValueError('Wr は 0 より大きい数値で入力してください。')
-			if rec <= 0:
-				raise ValueError('推奨荷重/本 は 0 より大きい数値で入力してください。')
-			if wcm <= 0:
-				raise ValueError('設置幅/本 は 0 より大きい数値で入力してください。')
+				raise ValueError(f'{label}: Wr は 0 より大きい数値で入力してください。')
+			if rec_v <= 0:
+				raise ValueError(f'{label}: 推奨荷重/本 は 0 より大きい数値で入力してください。')
+			if wcm_v <= 0:
+				raise ValueError(f'{label}: 設置幅/本 は 0 より大きい数値で入力してください。')
 			return {
-				'target_label': self.target_label.GetValue(),
-				'tire_size_text': self.tire_size.GetValue(),
+				'target_label': label,
+				'tire_size_text': tire_size.GetValue(),
 				'tire_count_n': n,
 				'axle_load_wr_kg': wr,
-				'recommended_load_per_tire_kg': rec,
-				'install_width_per_tire_cm': wcm,
+				'recommended_load_per_tire_kg': rec_v,
+				'install_width_per_tire_cm': wcm_v,
 			}
+
+		try:
+			front = parse_one(
+				'front',
+				'前輪',
+				self.front_tire_size,
+				self.front_tire_count,
+				self.front_wr_kg,
+				self.front_recommended_per_tire,
+				self.front_install_width_cm,
+			)
+			rear = parse_one(
+				'rear',
+				'後輪',
+				self.rear_tire_size,
+				self.rear_tire_count,
+				self.rear_wr_kg,
+				self.rear_recommended_per_tire,
+				self.rear_install_width_cm,
+			)
+			return [front, rear]
 		except Exception as e:
 			wx.MessageBox(str(e), '入力エラー', wx.ICON_ERROR)
 			return None
@@ -997,8 +1055,8 @@ class TireLoadContactPanel(wx.Panel):
 		if not _REPORTLAB_AVAILABLE:
 			wx.MessageBox('ReportLabが未インストールです。インストール後再試行してください。', 'PDF出力不可', wx.ICON_ERROR)
 			return
-		data = self._collect_input()
-		if data is None:
+		entries = self._collect_inputs()
+		if entries is None:
 			return
 		with wx.FileDialog(
 			self,
@@ -1013,7 +1071,7 @@ class TireLoadContactPanel(wx.Panel):
 		try:
 			from lib.tire_load_contact_sheet import TireLoadContactSheet, TireLoadContactSheetInput
 			sheet = TireLoadContactSheet(
-				data=TireLoadContactSheetInput(**data),
+				entries=[TireLoadContactSheetInput(**d) for d in entries],
 			)
 			if sheet.generate_pdf(path):
 				_open_saved_pdf(path)
@@ -1029,22 +1087,12 @@ class TireLoadContactPanel(wx.Panel):
 			return
 		try:
 			# 一括出力では未入力でも止めない
-			n = int(float(self.tire_count.GetValue() or 0))
-			wr = float(self.wr_kg.GetValue() or 0)
-			rec = float(self.recommended_per_tire.GetValue() or 0)
-			wcm = float(self.install_width_cm.GetValue() or 0)
-			if n <= 0 or wr <= 0 or rec <= 0 or wcm <= 0:
+			entries = self._collect_inputs()
+			if entries is None:
 				return
 			from lib.tire_load_contact_sheet import TireLoadContactSheet, TireLoadContactSheetInput
 			sheet = TireLoadContactSheet(
-				data=TireLoadContactSheetInput(
-					target_label=self.target_label.GetValue(),
-					tire_size_text=self.tire_size.GetValue(),
-					tire_count_n=n,
-					axle_load_wr_kg=wr,
-					recommended_load_per_tire_kg=rec,
-					install_width_per_tire_cm=wcm,
-				),
+				entries=[TireLoadContactSheetInput(**d) for d in entries],
 			)
 			sheet.generate_pdf(path)
 		except Exception:
@@ -1052,32 +1100,42 @@ class TireLoadContactPanel(wx.Panel):
 
 	def get_state(self) -> dict:
 		return {
-			'target_label': self.target_label.GetValue(),
-			'tire_size': self.tire_size.GetValue(),
-			'tire_count': self.tire_count.GetValue(),
-			'wr_kg': self.wr_kg.GetValue(),
-			'recommended_per_tire': self.recommended_per_tire.GetValue(),
-			'install_width_cm': self.install_width_cm.GetValue(),
+			'front_tire_size': self.front_tire_size.GetValue(),
+			'front_tire_count': self.front_tire_count.GetValue(),
+			'front_wr_kg': self.front_wr_kg.GetValue(),
+			'front_recommended_per_tire': self.front_recommended_per_tire.GetValue(),
+			'front_install_width_cm': self.front_install_width_cm.GetValue(),
+			'rear_tire_size': self.rear_tire_size.GetValue(),
+			'rear_tire_count': self.rear_tire_count.GetValue(),
+			'rear_wr_kg': self.rear_wr_kg.GetValue(),
+			'rear_recommended_per_tire': self.rear_recommended_per_tire.GetValue(),
+			'rear_install_width_cm': self.rear_install_width_cm.GetValue(),
 		}
 
 	def set_state(self, state: dict) -> None:
 		if not state:
 			return
 		try:
-			if 'target_label' in state:
-				val = str(state['target_label'])
-				if val in ('後輪', '前輪', 'その他'):
-					self.target_label.SetValue(val)
-			if 'tire_size' in state:
-				self.tire_size.SetValue(str(state['tire_size']))
-			if 'tire_count' in state:
-				self.tire_count.SetValue(str(state['tire_count']))
-			if 'wr_kg' in state:
-				self.wr_kg.SetValue(str(state['wr_kg']))
-			if 'recommended_per_tire' in state:
-				self.recommended_per_tire.SetValue(str(state['recommended_per_tire']))
-			if 'install_width_cm' in state:
-				self.install_width_cm.SetValue(str(state['install_width_cm']))
+			if 'front_tire_size' in state:
+				self.front_tire_size.SetValue(str(state['front_tire_size']))
+			if 'front_tire_count' in state:
+				self.front_tire_count.SetValue(str(state['front_tire_count']))
+			if 'front_wr_kg' in state:
+				self.front_wr_kg.SetValue(str(state['front_wr_kg']))
+			if 'front_recommended_per_tire' in state:
+				self.front_recommended_per_tire.SetValue(str(state['front_recommended_per_tire']))
+			if 'front_install_width_cm' in state:
+				self.front_install_width_cm.SetValue(str(state['front_install_width_cm']))
+			if 'rear_tire_size' in state:
+				self.rear_tire_size.SetValue(str(state['rear_tire_size']))
+			if 'rear_tire_count' in state:
+				self.rear_tire_count.SetValue(str(state['rear_tire_count']))
+			if 'rear_wr_kg' in state:
+				self.rear_wr_kg.SetValue(str(state['rear_wr_kg']))
+			if 'rear_recommended_per_tire' in state:
+				self.rear_recommended_per_tire.SetValue(str(state['rear_recommended_per_tire']))
+			if 'rear_install_width_cm' in state:
+				self.rear_install_width_cm.SetValue(str(state['rear_install_width_cm']))
 		except Exception:
 			return
 

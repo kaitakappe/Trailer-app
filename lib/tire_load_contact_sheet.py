@@ -9,8 +9,8 @@ from __future__ import annotations
 - <b> 接地圧
 
 計算式:
-  負荷率[%] = Wr / (n × 推奨荷重/本) × 100
-  接地圧[kg/cm] = Wr / (n × 設置幅/本)
+    負荷率[%] = Wr / (n × 推奨荷重/本) × 100
+    接地圧[kg/cm] = Wr / (n × 設置幅/本)
 
 ※ここで n は対象側のタイヤ本数（例: 後輪12本）
 """
@@ -113,12 +113,23 @@ class TireLoadContactSheet:
     def __init__(
         self,
         *,
-        data: TireLoadContactSheetInput,
+        data: TireLoadContactSheetInput | None = None,
+        entries: list[TireLoadContactSheetInput] | None = None,
         header_text: str = "",
         load_rate_limit_percent: float = 100.0,
         contact_pressure_limit_kg_per_cm: float = 200.0,
     ):
-        self.data = data
+        if entries is None:
+            if data is None:
+                raise ValueError("data または entries を指定してください")
+            self.entries = [data]
+        else:
+            if not entries:
+                raise ValueError("entries は1件以上指定してください")
+            self.entries = list(entries)
+
+        # 互換: 既存の単一入力前提メソッドは先頭要素を参照
+        self.data = self.entries[0]
         self.header_text = header_text
         self.load_rate_limit_percent = float(load_rate_limit_percent)
         self.contact_pressure_limit_kg_per_cm = float(contact_pressure_limit_kg_per_cm)
@@ -145,17 +156,15 @@ class TireLoadContactSheet:
             c = canvas.Canvas(filepath, pagesize=A4)
             w, h = A4
             font = _register_japanese_font()
-            self._draw_page(c, w, h, font)
-            c.showPage()
+            self._draw_pages(c, w, h, font)
             c.save()
             return True
         except Exception:
             return False
 
-    def _draw_page(self, c, w: float, h: float, font: str) -> None:
+    def _draw_header(self, c, w: float, h: float, font: str) -> float:
         left = 70
         top = 70
-
         y = h - top
 
         if self.header_text:
@@ -166,8 +175,11 @@ class TireLoadContactSheet:
         c.setFont(font, 14)
         c.drawCentredString(w / 2, y, "《タイヤ負荷率及び接地圧計算書》")
         y -= 36
+        return y
 
-        d = self.data
+    def _draw_entry(self, c, *, w: float, h: float, font: str, y: float, d: TireLoadContactSheetInput) -> float:
+        left = 70
+
         target = (d.target_label or "").strip() or "後輪"
         tire_txt = (d.tire_size_text or "").strip()
         c.setFont(font, 11)
@@ -197,7 +209,7 @@ class TireLoadContactSheet:
         c.drawString(left + 200, y - 6, "× 100")
         y -= frac_h + 10
 
-        # = 24830 / (12×2500) ×100
+        # = Wr / (n×推奨荷重) ×100
         wr_s = _fmt_int(d.axle_load_wr_kg)
         n_s = f"{int(d.tire_count_n)}"
         rec_s = _fmt_int(d.recommended_load_per_tire_kg)
@@ -216,7 +228,8 @@ class TireLoadContactSheet:
         c.drawString(left + 200, y - 6, "× 100")
         y -= frac_h + 16
 
-        load_rate = self.load_rate_percent()
+        denom = float(d.tire_count_n) * float(d.recommended_load_per_tire_kg)
+        load_rate = (float(d.axle_load_wr_kg) / denom * 100.0) if denom > 0 else 0.0
         c.setFont(font, 12)
         c.drawString(
             left + 40,
@@ -256,10 +269,26 @@ class TireLoadContactSheet:
         )
         y -= frac_h + 16
 
-        pressure = self.contact_pressure_kg_per_cm()
+        denom_p = float(d.tire_count_n) * float(d.install_width_per_tire_cm)
+        pressure = (float(d.axle_load_wr_kg) / denom_p) if denom_p > 0 else 0.0
         c.setFont(font, 12)
         c.drawString(
             left + 40,
             y,
             f"= {_fmt_1(pressure)}kg/cm ≤ {_fmt_int(self.contact_pressure_limit_kg_per_cm)}kg/cm",
         )
+        y -= 40
+
+        return y
+
+    def _draw_pages(self, c, w: float, h: float, font: str) -> None:
+        # 2軸分でも1ページに収まる想定だが、足りない場合はページ送り
+        min_y = 80
+        y = self._draw_header(c, w, h, font)
+        for idx, d in enumerate(self.entries):
+            if idx > 0:
+                y -= 18
+            if y < min_y + 220:
+                c.showPage()
+                y = self._draw_header(c, w, h, font)
+            y = self._draw_entry(c, w=w, h=h, font=font, y=y, d=d)
