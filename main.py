@@ -5531,6 +5531,328 @@ class TwoAxleLeafSpringPanel(wx.Panel):
 			pass
 
 
+class LeafSpringCushionStrengthPanel(wx.Panel):
+	"""緩衝装置（リーフスプリング）強度計算書"""
+
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last: dict | None = None
+
+		main = wx.BoxSizer(wx.VERTICAL)
+		t = wx.StaticText(self, label='緩衝装置強度（リーフスプリング）')
+		f = t.GetFont(); f.PointSize += 2; f = f.Bold(); t.SetFont(f)
+		main.Add(t, 0, wx.ALL, 6)
+
+		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
+		grid = wx.FlexGridSizer(0, 4, 6, 8)
+
+		# 重量
+		self.WR_total = self._add(grid, '後軸重量 WR [kg]', '', '24830')
+		self.Wu_unsprung = self._add(grid, 'ばね下重量 Wu [kg]', '', '3590')
+		self.spring_count = self._add(grid, 'ばね本数 [本]', '', '6')
+		# 寸法
+		self.b_width = self._add(grid, 'ばね幅 b [mm]', '', '90')
+		self.t_thickness = self._add(grid, '板厚 t [mm]', '', '13')
+		self.n_leaves = self._add(grid, '枚数 n [枚]', '', '8')
+		self.l_span = self._add(grid, '有効スパン l [mm]', '', '820')
+		self.l1_ubolt = self._add(grid, 'Uボルト間隔 l1 [mm]', '', '200')
+
+		# 材質
+		self.material = self._add(grid, '材質', '', 'sup9')
+		self.sigma_b = self._add(grid, '引張り強さ σB [N/mm²]', '', '1520')
+		self.sigma_y = self._add(grid, '降伏強さ σY [N/mm²]', '', '1370')
+
+		grid.AddGrowableCol(1, 1)
+		grid.AddGrowableCol(3, 1)
+		box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+		main.Add(box, 0, wx.EXPAND | wx.ALL, 6)
+
+		row = wx.BoxSizer(wx.HORIZONTAL)
+		btn_calc = wx.Button(self, label='計算')
+		btn_pdf = wx.Button(self, label='PDF出力')
+		btn_pdf.Enable(False)
+		row.Add(btn_calc, 0, wx.RIGHT, 8)
+		row.Add(btn_pdf, 0)
+		main.Add(row, 0, wx.ALIGN_CENTER | wx.ALL, 6)
+		self.btn_pdf = btn_pdf
+
+		btn_calc.Bind(wx.EVT_BUTTON, lambda e: (self.on_calc(), e.Skip()))
+		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
+
+		self.SetSizer(main)
+
+	def _add(self, sizer, label, default='', hint='') -> wx.TextCtrl:
+		p = wx.TextCtrl(self, value=default, style=wx.TE_RIGHT)
+		if hint:
+			p.SetHint(hint)
+		sizer.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add(p, 0, wx.EXPAND)
+		return p
+
+	def _f(self, ctrl: wx.TextCtrl) -> float:
+		v = ctrl.GetValue().strip()
+		if v == '':
+			raise ValueError('未入力の項目があります。')
+		return float(v)
+
+	def on_calc(self):
+		"""添付形式の板ばね応力・安全率を算出"""
+		try:
+			# 添付例に合わせ g=9.8 を採用
+			g = 9.8
+			WR = self._f(self.WR_total)
+			Wu = self._f(self.Wu_unsprung)
+			spring_count = int(self._f(self.spring_count))
+			b = self._f(self.b_width)
+			t = self._f(self.t_thickness)
+			n = int(self._f(self.n_leaves))
+			l = self._f(self.l_span)
+			l1 = self._f(self.l1_ubolt)
+			sigma_b = self._f(self.sigma_b)
+			sigma_y = self._f(self.sigma_y)
+
+			if spring_count <= 0:
+				raise ValueError('ばね本数は1以上で入力してください。')
+			if n <= 0:
+				raise ValueError('枚数nは1以上で入力してください。')
+			if l <= l1:
+				raise ValueError('有効スパン l は Uボルト間隔 l1 より大きくしてください。')
+			if b <= 0 or t <= 0:
+				raise ValueError('ばね幅b/板厚tは正の値で入力してください。')
+
+			Wr = WR - Wu
+			if Wr <= 0:
+				raise ValueError('ばね上重量 Wr = WR - Wu が0以下です。入力を確認してください。')
+
+			W_per_spring_kg = Wr / float(spring_count)
+			# σ = 3*W*(l-l1) / (2*b*t^2*n) * g
+			sigma = (3.0 * (W_per_spring_kg * g) * (l - l1)) / (2.0 * b * (t ** 2) * float(n))
+
+			# 添付例の安全率計算（2.5係数）
+			k = 2.5
+			fb = sigma_b / (k * sigma) if sigma > 0 else 0.0
+			fy = sigma_y / (k * sigma) if sigma > 0 else 0.0
+			ok_fb = fb >= 1.6
+			ok_fy = fy >= 1.3
+
+			self.last = {
+				'g': g,
+				'WR': WR,
+				'Wu': Wu,
+				'Wr': Wr,
+				'spring_count': spring_count,
+				'W_per': W_per_spring_kg,
+				'b': b,
+				't': t,
+				'n': n,
+				'l': l,
+				'l1': l1,
+				'material': self.material.GetValue(),
+				'sigma_b': sigma_b,
+				'sigma_y': sigma_y,
+				'sigma': sigma,
+				'k': k,
+				'fb': fb,
+				'fy': fy,
+				'ok_fb': ok_fb,
+				'ok_fy': ok_fy,
+			}
+
+			text = '\n'.join([
+				'《緩衝装置強度計算書（リーフスプリング）》',
+				'',
+				'○寸法諸元',
+				f"後軸重量 WR : {WR:.0f} kg",
+				f"ばね下重量 Wu : {Wu:.0f} kg",
+				f"ばね上重量 Wr : {Wr:.0f} kg",
+				f"ばね1本当たりの重量 W = Wr/{spring_count} : {W_per_spring_kg:.0f} kg",
+				f"ばね幅 b : {b:.0f} mm",
+				f"板厚 t : {t:.0f} mm",
+				f"ばねの枚数 n : {n} 枚",
+				f"有効スパン l : {l:.0f} mm",
+				f"Uボルト間隔 l1 : {l1:.0f} mm",
+				'',
+				'○ばね材質',
+				f"材質 : {self.material.GetValue()}",
+				f"引張り強さ : {sigma_b:.0f} N/mm²",
+				f"降伏強さ : {sigma_y:.0f} N/mm²",
+				'',
+				'○ばね応力 σ [N/mm²]',
+				'σ = (3×W×(l−l1)) / (2×b×t²×n) × g',
+				f"g = {g:.1f} m/s²",
+				f"σ = {sigma:.2f} N/mm²",
+				'',
+				'○安全率',
+				f"破壊安全率 fb = σB / ({k:.1f}×σ) = {fb:.2f}  → {'OK' if ok_fb else 'NG'} (基準 1.6以上)",
+				f"降伏安全率 fy = σY / ({k:.1f}×σ) = {fy:.2f}  → {'OK' if ok_fy else 'NG'} (基準 1.3以上)",
+			])
+			show_result('緩衝装置強度（リーフスプリング）', text)
+			self.btn_pdf.Enable(True)
+		except ValueError as e:
+			wx.MessageBox(str(e), '入力エラー', wx.ICON_ERROR)
+		except Exception as e:
+			wx.MessageBox(f'計算エラー: {e}', 'エラー', wx.ICON_ERROR)
+
+	def _pdf_font(self):
+		font = 'Helvetica'
+		for f in [
+			'C:/Windows/Fonts/msgothic.ttc',
+			'C:/Windows/Fonts/meiryo.ttc',
+			'C:/Windows/Fonts/yugothic.ttf',
+			'ipaexg.ttf',
+			'ipaexm.ttf',
+			'fonts/ipaexg.ttf',
+			'fonts/ipaexm.ttf',
+		]:
+			if os.path.exists(f):
+				try:
+					_pdfmetrics.registerFont(_TTFont('JPCushion', f))
+					font = 'JPCushion'
+					break
+				except Exception:
+					pass
+		return font
+
+	def on_export_pdf(self):
+		if self.last is None:
+			wx.MessageBox('先に計算を実行してください。', 'PDF出力', wx.ICON_INFORMATION)
+			return
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		with wx.FileDialog(
+			self,
+			message='PDF保存',
+			wildcard='PDF files (*.pdf)|*.pdf',
+			style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+			defaultFile='緩衝装置強度計算書_リーフスプリング.pdf',
+		) as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			path = dlg.GetPath()
+		try:
+			self.export_to_path(path)
+			_open_saved_pdf(path)
+			wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力中エラー: {e}', 'エラー', wx.ICON_ERROR)
+
+	def export_to_path(self, path):
+		if self.last is None or not _REPORTLAB_AVAILABLE:
+			return
+		v = self.last
+		c = _pdf_canvas.Canvas(path, pagesize=_A4)
+		W, H = _A4
+		font = self._pdf_font()
+		left = 40
+		y = H - 40
+
+		c.setFont(font, 14)
+		c.drawString(left, y, '緩衝装置強度計算書（リーフスプリング）')
+		y -= 22
+		c.setFont(font, 9)
+		c.drawString(left, y, '※添付例に合わせ g=9.8、係数2.5で評価')
+		y -= 18
+
+		def table(x, y, col_w, row_h, rows):
+			Wtot = sum(col_w)
+			Ht = row_h * len(rows)
+			c.rect(x, y - Ht, Wtot, Ht)
+			for i in range(1, len(rows)):
+				c.line(x, y - row_h * i, x + Wtot, y - row_h * i)
+			cx = x
+			for wcol in col_w[:-1]:
+				cx += wcol
+				c.line(cx, y, cx, y - Ht)
+			for r, row in enumerate(rows):
+				cy = y - row_h * (r + 1) + 5
+				cx = x + 4
+				for j, cell in enumerate(row):
+					c.drawString(cx, cy, str(cell))
+					cx += col_w[j]
+			return y - Ht - 10
+
+		y = table(left, y, [220, 140, 120], 18, [
+			['項目', '値', '単位'],
+			['後軸重量 WR', f"{v['WR']:.0f}", 'kg'],
+			['ばね下重量 Wu', f"{v['Wu']:.0f}", 'kg'],
+			['ばね上重量 Wr', f"{v['Wr']:.0f}", 'kg'],
+			['ばね本数', f"{v['spring_count']}", '本'],
+			['ばね1本当たり W', f"{v['W_per']:.0f}", 'kg'],
+			['ばね幅 b', f"{v['b']:.0f}", 'mm'],
+			['板厚 t', f"{v['t']:.0f}", 'mm'],
+			['枚数 n', f"{v['n']}", '枚'],
+			['有効スパン l', f"{v['l']:.0f}", 'mm'],
+			['Uボルト間隔 l1', f"{v['l1']:.0f}", 'mm'],
+		])
+
+		y = table(left, y, [220, 140, 120], 18, [
+			['材質', v.get('material', ''), ''],
+			['引張り強さ σB', f"{v['sigma_b']:.0f}", 'N/mm²'],
+			['降伏強さ σY', f"{v['sigma_y']:.0f}", 'N/mm²'],
+		])
+
+		c.setFont(font, 10)
+		c.drawString(left, y, 'ばね応力')
+		y -= 14
+		c.setFont(font, 9)
+		c.drawString(left, y, 'σ = (3×W×(l−l1)) / (2×b×t²×n) × g')
+		y -= 12
+		c.drawString(left, y, f"g = {v['g']:.1f} m/s²")
+		y -= 14
+		c.setFont(font, 11)
+		c.drawString(left, y, f"σ = {v['sigma']:.2f} N/mm²")
+		y -= 20
+
+		c.setFont(font, 10)
+		c.drawString(left, y, '安全率')
+		y -= 14
+		c.setFont(font, 9)
+		c.drawString(left, y, f"破壊安全率 fb = σB / ({v['k']:.1f}×σ) = {v['fb']:.2f}  (基準 1.6以上)")
+		y -= 12
+		c.drawString(left, y, f"降伏安全率 fy = σY / ({v['k']:.1f}×σ) = {v['fy']:.2f}  (基準 1.3以上)")
+		y -= 18
+		c.setFont(font, 10)
+		judge = 'OK' if (v.get('ok_fb') and v.get('ok_fy')) else 'NG'
+		c.drawString(left, y, f"判定: {judge}")
+
+		c.showPage()
+		c.save()
+
+	def get_state(self) -> dict:
+		return {
+			'WR_total': self.WR_total.GetValue(),
+			'Wu_unsprung': self.Wu_unsprung.GetValue(),
+			'spring_count': self.spring_count.GetValue(),
+			'b_width': self.b_width.GetValue(),
+			't_thickness': self.t_thickness.GetValue(),
+			'n_leaves': self.n_leaves.GetValue(),
+			'l_span': self.l_span.GetValue(),
+			'l1_ubolt': self.l1_ubolt.GetValue(),
+			'material': self.material.GetValue(),
+			'sigma_b': self.sigma_b.GetValue(),
+			'sigma_y': self.sigma_y.GetValue(),
+			'last': self.last,
+		}
+
+	def set_state(self, state: dict) -> None:
+		if not state:
+			return
+		self.WR_total.SetValue(str(state.get('WR_total', self.WR_total.GetValue())))
+		self.Wu_unsprung.SetValue(str(state.get('Wu_unsprung', self.Wu_unsprung.GetValue())))
+		self.spring_count.SetValue(str(state.get('spring_count', self.spring_count.GetValue())))
+		self.b_width.SetValue(str(state.get('b_width', self.b_width.GetValue())))
+		self.t_thickness.SetValue(str(state.get('t_thickness', self.t_thickness.GetValue())))
+		self.n_leaves.SetValue(str(state.get('n_leaves', self.n_leaves.GetValue())))
+		self.l_span.SetValue(str(state.get('l_span', self.l_span.GetValue())))
+		self.l1_ubolt.SetValue(str(state.get('l1_ubolt', self.l1_ubolt.GetValue())))
+		self.material.SetValue(str(state.get('material', self.material.GetValue())))
+		self.sigma_b.SetValue(str(state.get('sigma_b', self.sigma_b.GetValue())))
+		self.sigma_y.SetValue(str(state.get('sigma_y', self.sigma_y.GetValue())))
+		self.last = state.get('last', self.last)
+		self.btn_pdf.Enable(self.last is not None)
+
+
 class OverviewPanel(wx.Panel):
 	"""概要等説明書・装置の概要発行パネル"""
 	def __init__(self, parent):
@@ -6908,6 +7230,7 @@ class MainFrame(wx.Frame):
 			('ヒッチメンバー強度', HitchStrengthPanel(self.nb)),
 			('制動装置強度', BrakeStrengthPanel(self.nb)),
 			('牽引車諸元', TowingSpecPanel(self.nb)),
+			('緩衝装置強度', LeafSpringCushionStrengthPanel(self.nb)),
 			('板ばね分布', TwoAxleLeafSpringPanel(self.nb)),
 			('安全チェーン', SafetyChainPanel(self.nb)),
 			('保安基準適合検討表', Form2Panel(self.nb)),
