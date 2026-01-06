@@ -1412,12 +1412,13 @@ class TireLoadContactPanel(wx.Panel):
 		try:
 			# MainFrameを通じて重量計算パネルにアクセス
 			main_frame = self.GetTopLevelParent()
-			weight_panel = None
-			for title, panel in main_frame.panels:
-				if title == '重量計算':
-					weight_panel = panel
-					break
-			
+			weight_panel = getattr(main_frame, 'weight_panel', None)
+			if weight_panel is None and hasattr(main_frame, 'panels'):
+				for title, panel in getattr(main_frame, 'panels', []):
+					if title == '重量計算':
+						weight_panel = panel
+						break
+		
 			if weight_panel is None:
 				wx.MessageBox('重量計算パネルが見つかりません。', 'エラー', wx.ICON_ERROR)
 				return
@@ -7729,6 +7730,8 @@ class MainFrame(wx.Frame):
 			('保安基準適合検討表', Form2Panel(self.nb)),
 		]
 		self.original_titles = [title for title, _ in self.panels]
+		# 重量計算パネルへの直接参照を保持しておく（他パネルから安全に参照するため）
+		self.weight_panel = self.panels[0][1] if self.panels else None
 		for title, panel in self.panels:
 			self.nb.AddPage(panel, title)
 		self.current_project_path = None
