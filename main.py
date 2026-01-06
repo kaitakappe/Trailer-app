@@ -1,4 +1,5 @@
 ﻿import wx
+import wx.grid
 import os
 import re
 import tempfile
@@ -618,26 +619,86 @@ class WeightCalcPanel(wx.Panel):
 		v.Add(
 			wx.StaticText(
 				self,
-				label='部品表（TSV推奨。Excelからコピー可）\n'
-				      '書式: No\t名称\tWi(kg)\tLi(mm)\tHi(mm)\n'
+				label='部品表（テーブル形式。モーメントは自動計算されます）\n'
 				      '・Wi: その部品の重量(kg)（重心に集中荷重として扱います）\n'
 				      '・Li: ヒッチカプラー基準の水平方向距離(mm)（前方=マイナス、後方=プラス）\n'
-				      '・Hi: 地面基準の高さ(mm)（部品の重心高さ。分からなければ概算でもOK）',
+				      '・Hi: 地面基準の高さ(mm)（部品の重心高さ。分からなければ概算でもOK）\n'
+				      '・モーメント(Wi×Li、Wi×Hi)は自動計算されます',
 			),
 			0,
 			wx.LEFT|wx.RIGHT|wx.TOP,
 			6,
 		)
-		self.components_tsv = wx.TextCtrl(self, value='', style=wx.TE_MULTILINE)
-		sample = 'No\t名称\tWi\tLi\tHi\n(1)\tエアカプラカバー\t5\t-700\t1510\n'
-		self.components_tsv.SetHint(sample)
-		self.components_tsv.SetToolTip(
-			'1行=1部品です。区切りはタブ(推奨)またはカンマ。\n'
-			'Wi: 重量(kg) / Li: ヒッチカプラー基準の水平距離(mm) / Hi: 地面からの高さ(mm)\n'
-			'Liの符号: 前方(ヒッチカプラーより前)=マイナス、後方=プラス\n\n'
-			+ sample
-		)
-		v.Add(self.components_tsv, 1, wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, 6)
+		
+		# TSV入力ボタン（互換性のため残す）
+		btn_tsv_panel = wx.Panel(self)
+		btn_tsv_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		btn_import_tsv = wx.Button(btn_tsv_panel, label='TSVからインポート')
+		btn_import_tsv.Bind(wx.EVT_BUTTON, self.on_import_tsv)
+		btn_tsv_sizer.Add(btn_import_tsv, 0, wx.RIGHT, 8)
+		btn_export_tsv = wx.Button(btn_tsv_panel, label='TSVへエクスポート')
+		btn_export_tsv.Bind(wx.EVT_BUTTON, self.on_export_tsv)
+		btn_tsv_sizer.Add(btn_export_tsv, 0, wx.RIGHT, 8)
+		btn_add_row = wx.Button(btn_tsv_panel, label='行追加')
+		btn_add_row.Bind(wx.EVT_BUTTON, self.on_add_row)
+		btn_tsv_sizer.Add(btn_add_row, 0, wx.RIGHT, 8)
+		btn_del_row = wx.Button(btn_tsv_panel, label='選択行削除')
+		btn_del_row.Bind(wx.EVT_BUTTON, self.on_delete_row)
+		btn_tsv_sizer.Add(btn_del_row, 0)
+		btn_tsv_panel.SetSizer(btn_tsv_sizer)
+		v.Add(btn_tsv_panel, 0, wx.ALIGN_CENTER|wx.LEFT|wx.RIGHT|wx.TOP, 6)
+		
+		# グリッドテーブルの作成
+		self.components_grid = wx.grid.Grid(self)
+		self.components_grid.CreateGrid(10, 7)
+		self.components_grid.SetRowLabelSize(40)
+		
+		# カラムヘッダーの高さを調整（複数行表示のため）
+		self.components_grid.SetColLabelSize(60)
+		
+		# カラムヘッダー設定
+		self.components_grid.SetColLabelValue(0, 'No.')
+		self.components_grid.SetColLabelValue(1, '名称')
+		self.components_grid.SetColLabelValue(2, '重量\nWi\n(kg)')
+		self.components_grid.SetColLabelValue(3, 'ヒッチカプラー\nLi\n(mm)')
+		self.components_grid.SetColLabelValue(4, 'モーメント\nWi×Li\n(kg·mm)')
+		self.components_grid.SetColLabelValue(5, '重心高\nHi\n(mm)')
+		self.components_grid.SetColLabelValue(6, 'モーメント\nWi×Hi\n(kg·mm)')
+		
+		# カラム幅設定
+		self.components_grid.SetColSize(0, 50)   # No.
+		self.components_grid.SetColSize(1, 150)  # 名称
+		self.components_grid.SetColSize(2, 70)   # Wi
+		self.components_grid.SetColSize(3, 85)   # Li
+		self.components_grid.SetColSize(4, 110)  # Wi×Li（モーメント列を広く）
+		self.components_grid.SetColSize(5, 70)   # Hi
+		self.components_grid.SetColSize(6, 110)  # Wi×Hi（モーメント列を広く）
+		
+		# 全セルの背景色とReadOnly属性を設定
+		for row in range(self.components_grid.GetNumberRows()):
+			# 編集可能な列（0,1,2,3,5）は白背景で編集可能に設定
+			for col in [0, 1, 2, 3, 5]:
+				self.components_grid.SetReadOnly(row, col, False)
+				self.components_grid.SetCellBackgroundColour(row, col, wx.WHITE)
+			# モーメント列（4,6）はグレー背景で読み取り専用
+			self.components_grid.SetReadOnly(row, 4, True)
+			self.components_grid.SetReadOnly(row, 6, True)
+			self.components_grid.SetCellBackgroundColour(row, 4, wx.Colour(240, 240, 240))
+			self.components_grid.SetCellBackgroundColour(row, 6, wx.Colour(240, 240, 240))
+		
+		# グリッドのサイズを計算して設定（全列の幅合計 + 行ラベル + スクロールバー余白）
+		total_width = sum([self.components_grid.GetColSize(i) for i in range(7)]) + self.components_grid.GetRowLabelSize() + 25
+		self.components_grid.SetMinSize(wx.Size(total_width, 300))
+		
+		# セル編集時のイベントバインド
+		self.components_grid.Bind(wx.grid.EVT_GRID_CELL_CHANGED, self.on_grid_cell_changed)
+		
+		v.Add(self.components_grid, 0, wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, 6)
+		
+		# 合計表示用ラベル
+		self.total_label = wx.StaticText(self, label='合計: Wi=0.0 kg, Wi×Li=0.0 kg·mm, Wi×Hi=0.0 kg·mm')
+		self.total_label.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+		v.Add(self.total_label, 0, wx.LEFT|wx.RIGHT|wx.BOTTOM, 6)
 
 		self.tc = self._add(v, 'タイヤ本数:', '', '4')
 		self.tl = self._add(v, '推奨荷重/本 [kg]:', '', '600')
@@ -676,12 +737,229 @@ class WeightCalcPanel(wx.Panel):
 		h.Add(t, 1)
 		sizer.Add(h, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
 		return t
+	
+	def on_grid_cell_changed(self, event):
+		"""グリッドセル変更時にモーメントを自動計算"""
+		row = event.GetRow()
+		col = event.GetCol()
+		
+		# Wi(col=2), Li(col=3), Hi(col=5)のいずれかが変更されたらモーメントを再計算
+		if col in (2, 3, 5):
+			self._update_moment_for_row(row)
+		
+		# 合計を更新
+		self._update_totals()
+		
+		event.Skip()
+	
+	def _update_moment_for_row(self, row):
+		"""指定行のモーメントを計算して更新"""
+		try:
+			wi_str = self.components_grid.GetCellValue(row, 2)
+			li_str = self.components_grid.GetCellValue(row, 3)
+			hi_str = self.components_grid.GetCellValue(row, 5)
+			
+			if wi_str and li_str:
+				wi = float(wi_str)
+				li = float(li_str)
+				moment_li = wi * li
+				self.components_grid.SetCellValue(row, 4, f'{moment_li:.0f}')
+			else:
+				self.components_grid.SetCellValue(row, 4, '')
+			
+			if wi_str and hi_str:
+				wi = float(wi_str)
+				hi = float(hi_str)
+				moment_hi = wi * hi
+				self.components_grid.SetCellValue(row, 6, f'{moment_hi:.0f}')
+			else:
+				self.components_grid.SetCellValue(row, 6, '')
+		except ValueError:
+			# 数値に変換できない場合はモーメントをクリア
+			self.components_grid.SetCellValue(row, 4, '')
+			self.components_grid.SetCellValue(row, 6, '')
+	
+	def _update_totals(self):
+		"""全行の合計を計算して表示"""
+		total_wi = 0.0
+		total_wi_li = 0.0
+		total_wi_hi = 0.0
+		
+		for row in range(self.components_grid.GetNumberRows()):
+			try:
+				wi_str = self.components_grid.GetCellValue(row, 2)
+				if wi_str:
+					wi = float(wi_str)
+					total_wi += wi
+					
+					wi_li_str = self.components_grid.GetCellValue(row, 4)
+					if wi_li_str:
+						total_wi_li += float(wi_li_str)
+					
+					wi_hi_str = self.components_grid.GetCellValue(row, 6)
+					if wi_hi_str:
+						total_wi_hi += float(wi_hi_str)
+			except ValueError:
+				continue
+		
+		self.total_label.SetLabelText(
+			f'合計: Σ Wi={total_wi:.0f} kg, Σ Wi×Li={total_wi_li:.0f} kg·mm, Σ Wi×Hi={total_wi_hi:.0f} kg·mm'
+		)
+	
+	def on_add_row(self, event):
+		"""行を追加"""
+		self.components_grid.AppendRows(1)
+		row = self.components_grid.GetNumberRows() - 1
+		# 編集可能な列は白背景
+		for col in [0, 1, 2, 3, 5]:
+			self.components_grid.SetReadOnly(row, col, False)
+			self.components_grid.SetCellBackgroundColour(row, col, wx.WHITE)
+		# モーメント列はグレー背景で読み取り専用
+		self.components_grid.SetReadOnly(row, 4, True)
+		self.components_grid.SetReadOnly(row, 6, True)
+		self.components_grid.SetCellBackgroundColour(row, 4, wx.Colour(240, 240, 240))
+		self.components_grid.SetCellBackgroundColour(row, 6, wx.Colour(240, 240, 240))
+		self.components_grid.ForceRefresh()
+	
+	def on_delete_row(self, event):
+		"""選択行を削除"""
+		selected_rows = self.components_grid.GetSelectedRows()
+		if not selected_rows:
+			# セルが選択されている場合は、その行を取得
+			if self.components_grid.GetGridCursorRow() >= 0:
+				selected_rows = [self.components_grid.GetGridCursorRow()]
+		
+		if selected_rows:
+			# 降順でソートして削除（インデックスがずれないように）
+			for row in sorted(selected_rows, reverse=True):
+				self.components_grid.DeleteRows(row, 1)
+			self._update_totals()
+			self.components_grid.ForceRefresh()
+		else:
+			wx.MessageBox('削除する行を選択してください。', '情報', wx.ICON_INFORMATION)
+	
+	def on_import_tsv(self, event):
+		"""TSV形式からグリッドにインポート"""
+		dlg = wx.TextEntryDialog(
+			self,
+			'TSV形式のデータを貼り付けてください：\n'
+			'形式: No\t名称\tWi(kg)\tLi(mm)\tHi(mm)\n'
+			'例: (1)\tエアカプラカバー\t5\t-700\t1510',
+			'TSVインポート',
+			style=wx.OK | wx.CANCEL | wx.TE_MULTILINE | wx.TE_WORDWRAP
+		)
+		dlg.SetSize(500, 400)
+		
+		if dlg.ShowModal() == wx.ID_OK:
+			tsv_text = dlg.GetValue()
+			from lib.weight_calculation_sheet import parse_components_tsv
+			components = parse_components_tsv(tsv_text)
+			
+			if components:
+				# グリッドをクリア
+				for row in range(self.components_grid.GetNumberRows()):
+					for col in range(self.components_grid.GetNumberCols()):
+						self.components_grid.SetCellValue(row, col, '')
+				
+				# 必要に応じて行を追加
+				current_rows = self.components_grid.GetNumberRows()
+				needed_rows = len(components)
+				if needed_rows > current_rows:
+					self.components_grid.AppendRows(needed_rows - current_rows)
+				
+				# 全行の背景色とReadOnlyを設定
+				for row in range(needed_rows):
+					# 編集可能な列は白背景
+					for col in [0, 1, 2, 3, 5]:
+						self.components_grid.SetReadOnly(row, col, False)
+						self.components_grid.SetCellBackgroundColour(row, col, wx.WHITE)
+					# モーメント列はグレー背景で読み取り専用
+					self.components_grid.SetReadOnly(row, 4, True)
+					self.components_grid.SetReadOnly(row, 6, True)
+					self.components_grid.SetCellBackgroundColour(row, 4, wx.Colour(240, 240, 240))
+					self.components_grid.SetCellBackgroundColour(row, 6, wx.Colour(240, 240, 240))
+				
+				# データを設定
+				for i, comp in enumerate(components):
+					self.components_grid.SetCellValue(i, 0, comp.no)
+					self.components_grid.SetCellValue(i, 1, comp.name)
+					self.components_grid.SetCellValue(i, 2, f'{comp.wi_kg:.0f}')
+					self.components_grid.SetCellValue(i, 3, f'{comp.li_mm:.0f}')
+					self.components_grid.SetCellValue(i, 5, f'{comp.hi_mm:.0f}')
+					self._update_moment_for_row(i)
+				
+				self._update_totals()
+				self.components_grid.ForceRefresh()
+				self.components_grid.Refresh()
+				wx.CallAfter(self.components_grid.Update)
+				wx.MessageBox(f'{len(components)}件のデータをインポートしました。', '完了', wx.ICON_INFORMATION)
+			else:
+				wx.MessageBox('有効なデータが見つかりませんでした。', 'エラー', wx.ICON_ERROR)
+		
+		dlg.Destroy()
+	
+	def on_export_tsv(self, event):
+		"""グリッドからTSV形式にエクスポート"""
+		lines = ['No\t名称\tWi\tLi\tHi']
+		
+		for row in range(self.components_grid.GetNumberRows()):
+			no = self.components_grid.GetCellValue(row, 0)
+			name = self.components_grid.GetCellValue(row, 1)
+			wi = self.components_grid.GetCellValue(row, 2)
+			li = self.components_grid.GetCellValue(row, 3)
+			hi = self.components_grid.GetCellValue(row, 5)
+			
+			# 空行はスキップ
+			if not (no or name or wi or li or hi):
+				continue
+			
+			lines.append(f'{no}\t{name}\t{wi}\t{li}\t{hi}')
+		
+		tsv_text = '\n'.join(lines)
+		
+		# クリップボードにコピー
+		if wx.TheClipboard.Open():
+			wx.TheClipboard.SetData(wx.TextDataObject(tsv_text))
+			wx.TheClipboard.Close()
+			wx.MessageBox('TSV形式でクリップボードにコピーしました。', '完了', wx.ICON_INFORMATION)
+		else:
+			wx.MessageBox('クリップボードにアクセスできませんでした。', 'エラー', wx.ICON_ERROR)
 
+	def _get_components_from_grid(self):
+		"""グリッドから部品データを取得"""
+		from lib.weight_calculation_sheet import SemiTrailerComponent
+		components = []
+		
+		for row in range(self.components_grid.GetNumberRows()):
+			no = self.components_grid.GetCellValue(row, 0)
+			name = self.components_grid.GetCellValue(row, 1)
+			wi_str = self.components_grid.GetCellValue(row, 2)
+			li_str = self.components_grid.GetCellValue(row, 3)
+			hi_str = self.components_grid.GetCellValue(row, 5)
+			
+			# 必須項目が空の場合はスキップ
+			if not (wi_str and li_str and hi_str):
+				continue
+			
+			try:
+				components.append(
+					SemiTrailerComponent(
+						no=no if no else f'({row+1})',
+						name=name if name else '部品',
+						wi_kg=float(wi_str),
+						li_mm=float(li_str),
+						hi_mm=float(hi_str),
+					)
+				)
+			except ValueError:
+				continue
+		
+		return components
+	
 	def _derive_empty_axle_weights(self) -> tuple[float, float] | None:
 		"""部品表+W.B.が揃っている場合、空車時の前軸/後軸重量を導出する。"""
 		try:
-			from lib.weight_calculation_sheet import parse_components_tsv
-			components = parse_components_tsv(self.components_tsv.GetValue())
+			components = self._get_components_from_grid()
 			wb = float(self.wb.GetValue() or 0)
 			if not components or wb <= 0:
 				return None
@@ -705,8 +983,7 @@ class WeightCalcPanel(wx.Panel):
 		derived_fa_ra: tuple[float, float] | None = None
 
 		try:
-			from lib.weight_calculation_sheet import parse_components_tsv
-			components = parse_components_tsv(self.components_tsv.GetValue())
+			components = self._get_components_from_grid()
 			wb = float(self.wb.GetValue() or 0)
 			payload_max = float(self.payload_max.GetValue() or 0)
 			os_a = float(self.os_a.GetValue() or 0)
@@ -800,11 +1077,9 @@ class WeightCalcPanel(wx.Panel):
 			path = dlg.GetPath()
 		try:
 			# 添付様式（セミトレーラー重量計算書）用入力
-			from lib.weight_calculation_sheet import parse_components_tsv
-			components = parse_components_tsv(self.components_tsv.GetValue())
+			components = self._get_components_from_grid()
 			if not components:
-				ex = 'No\t名称\tWi\tLi\tHi\n(1)\tエアカプラカバー\t5\t-700\t1510\n'
-				wx.MessageBox('部品表が空、または形式が合っていません。\n\n例:\n' + ex, '入力不足', wx.ICON_ERROR); return
+				wx.MessageBox('部品表が空です。Wi, Li, Hiを入力してください。', '入力不足', wx.ICON_ERROR); return
 			wb = float(self.wb.GetValue() or 0)
 			payload_max = float(self.payload_max.GetValue() or 0)
 			os_a = float(self.os_a.GetValue() or 0)
@@ -837,8 +1112,7 @@ class WeightCalcPanel(wx.Panel):
 		if not _REPORTLAB_AVAILABLE:
 			return
 		try:
-			from lib.weight_calculation_sheet import parse_components_tsv
-			components = parse_components_tsv(self.components_tsv.GetValue())
+			components = self._get_components_from_grid()
 			if not components:
 				return
 			wb = float(self.wb.GetValue() or 0)
@@ -867,6 +1141,15 @@ class WeightCalcPanel(wx.Panel):
 		derived = self._derive_empty_axle_weights()
 		fa_s = f"{derived[0]:.0f}" if derived else ''
 		ra_s = f"{derived[1]:.0f}" if derived else ''
+		
+		# グリッドデータを保存
+		grid_data = []
+		for row in range(self.components_grid.GetNumberRows()):
+			row_data = []
+			for col in range(self.components_grid.GetNumberCols()):
+				row_data.append(self.components_grid.GetCellValue(row, col))
+			grid_data.append(row_data)
+		
 		return {
 			'vw': self.vw.GetValue(),
 			'ml': self.ml.GetValue(),
@@ -877,7 +1160,7 @@ class WeightCalcPanel(wx.Panel):
 			'os_a': self.os_a.GetValue(),
 			'os_c': self.os_c.GetValue(),
 			'os_d': self.os_d.GetValue(),
-			'components_tsv': self.components_tsv.GetValue(),
+			'components_grid': grid_data,
 			'tc': self.tc.GetValue(),
 			'tl': self.tl.GetValue(),
 			'cw': self.cw.GetValue(),
@@ -896,7 +1179,121 @@ class WeightCalcPanel(wx.Panel):
 		if 'os_a' in state: self.os_a.SetValue(str(state['os_a']))
 		if 'os_c' in state: self.os_c.SetValue(str(state['os_c']))
 		if 'os_d' in state: self.os_d.SetValue(str(state['os_d']))
-		if 'components_tsv' in state: self.components_tsv.SetValue(str(state['components_tsv']))
+		
+		# グリッドデータを復元
+		if 'components_grid' in state:
+			grid_data = state['components_grid']
+			if grid_data:
+				# バッチ更新開始
+				self.components_grid.BeginBatch()
+				
+				# まず全セルをクリア
+				for row in range(self.components_grid.GetNumberRows()):
+					for col in range(self.components_grid.GetNumberCols()):
+						self.components_grid.SetCellValue(row, col, '')
+				
+				# 必要に応じて行を追加
+				current_rows = self.components_grid.GetNumberRows()
+				needed_rows = len(grid_data)
+				if needed_rows > current_rows:
+					self.components_grid.AppendRows(needed_rows - current_rows)
+				
+				# データを設定（モーメント列は除く）
+				for row_idx, row_data in enumerate(grid_data):
+					for col_idx, value in enumerate(row_data):
+						if col_idx < self.components_grid.GetNumberCols():
+							# モーメント列（4と6）はスキップ（後で再計算）
+							if col_idx not in (4, 6):
+								self.components_grid.SetCellValue(row_idx, col_idx, str(value) if value else '')
+				
+				# 全行のモーメントを再計算
+				for row_idx in range(len(grid_data)):
+					self._update_moment_for_row(row_idx)
+				
+				# バッチ更新終了
+				self.components_grid.EndBatch()
+				
+				# 列幅を再設定
+				self.components_grid.SetColSize(0, 50)
+				self.components_grid.SetColSize(1, 150)
+				self.components_grid.SetColSize(2, 70)
+				self.components_grid.SetColSize(3, 85)
+				self.components_grid.SetColSize(4, 110)
+				self.components_grid.SetColSize(5, 70)
+				self.components_grid.SetColSize(6, 110)
+				
+				# 全行（初期行含む）の背景色とReadOnlyを再設定
+				for row in range(self.components_grid.GetNumberRows()):
+					# 編集可能な列（0,1,2,3,5）は白背景に設定
+					for col in [0, 1, 2, 3, 5]:
+						self.components_grid.SetReadOnly(row, col, False)
+						self.components_grid.SetCellBackgroundColour(row, col, wx.WHITE)
+					# モーメント列（4,6）はグレー背景で読み取り専用
+					self.components_grid.SetReadOnly(row, 4, True)
+					self.components_grid.SetReadOnly(row, 6, True)
+					self.components_grid.SetCellBackgroundColour(row, 4, wx.Colour(240, 240, 240))
+					self.components_grid.SetCellBackgroundColour(row, 6, wx.Colour(240, 240, 240))
+				
+				self._update_totals()
+				self.components_grid.ForceRefresh()
+		# 旧形式（TSV）からの移行サポート
+		elif 'components_tsv' in state and state['components_tsv']:
+			from lib.weight_calculation_sheet import parse_components_tsv
+			try:
+				components = parse_components_tsv(str(state['components_tsv']))
+				if components:
+					# バッチ更新開始
+					self.components_grid.BeginBatch()
+					
+					# まず全セルをクリア
+					for row in range(self.components_grid.GetNumberRows()):
+						for col in range(self.components_grid.GetNumberCols()):
+							self.components_grid.SetCellValue(row, col, '')
+					
+					# 必要に応じて行を追加
+					current_rows = self.components_grid.GetNumberRows()
+					needed_rows = len(components)
+					if needed_rows > current_rows:
+						self.components_grid.AppendRows(needed_rows - current_rows)
+					
+					# データを設定
+					for i, comp in enumerate(components):
+						self.components_grid.SetCellValue(i, 0, comp.no)
+						self.components_grid.SetCellValue(i, 1, comp.name)
+						self.components_grid.SetCellValue(i, 2, f'{comp.wi_kg:.0f}')
+						self.components_grid.SetCellValue(i, 3, f'{comp.li_mm:.0f}')
+						self.components_grid.SetCellValue(i, 5, f'{comp.hi_mm:.0f}')
+						self._update_moment_for_row(i)
+					
+					# バッチ更新終了
+					self.components_grid.EndBatch()
+					
+					# 列幅を再設定
+					self.components_grid.SetColSize(0, 50)
+					self.components_grid.SetColSize(1, 150)
+					self.components_grid.SetColSize(2, 70)
+					self.components_grid.SetColSize(3, 85)
+					self.components_grid.SetColSize(4, 110)
+					self.components_grid.SetColSize(5, 70)
+					self.components_grid.SetColSize(6, 110)
+					
+					# 全行（初期行含む）の背景色とReadOnlyを再設定
+					for row in range(self.components_grid.GetNumberRows()):
+						# 編集可能な列（0,1,2,3,5）は白背景に設定
+						for col in [0, 1, 2, 3, 5]:
+							self.components_grid.SetReadOnly(row, col, False)
+							self.components_grid.SetCellBackgroundColour(row, col, wx.WHITE)
+						# モーメント列（4,6）はグレー背景で読み取り専用
+						self.components_grid.SetReadOnly(row, 4, True)
+						self.components_grid.SetReadOnly(row, 6, True)
+						self.components_grid.SetCellBackgroundColour(row, 4, wx.Colour(240, 240, 240))
+						self.components_grid.SetCellBackgroundColour(row, 6, wx.Colour(240, 240, 240))
+					
+					self._update_totals()
+					self.components_grid.ForceRefresh()
+			except Exception:
+				pass
+		
 		if 'tc' in state: self.tc.SetValue(str(state['tc']))
 		if 'tl' in state: self.tl.SetValue(str(state['tl']))
 		if 'cw' in state: self.cw.SetValue(str(state['cw']))
@@ -928,12 +1325,18 @@ class TireLoadContactPanel(wx.Panel):
 				self,
 				label='【タイヤ負荷率及び接地圧計算書(PDF)】\n'
 				      '例の形式（分数表示＋計算過程）でPDFを出力します。\n'
-				      '前軸・後軸の2軸分を同時に出力します。',
+				      '前軸・後軸の2軸分を同時に出力します。\n'
+				      '「重量計算から取得」ボタンで重量計算書のデータを自動反映できます。',
 			),
 			0,
 			wx.LEFT | wx.RIGHT | wx.TOP,
 			6,
 		)
+		
+		# 重量計算から取得ボタン
+		btn_auto = wx.Button(self, label='重量計算から取得')
+		btn_auto.Bind(wx.EVT_BUTTON, self.on_auto_fill_from_weight_calc)
+		v.Add(btn_auto, 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
 
 		def add_section(title: str, defaults: dict[str, str]):
 			box = wx.StaticBoxSizer(wx.StaticBox(self, label=title), wx.VERTICAL)
@@ -1004,6 +1407,96 @@ class TireLoadContactPanel(wx.Panel):
 		v.Add(btn_row, 0, wx.ALIGN_CENTER | wx.ALL, 10)
 		self.SetSizer(v)
 
+	def on_auto_fill_from_weight_calc(self, event):
+		"""重量計算書から値を自動取得して入力欄に反映"""
+		try:
+			# MainFrameを通じて重量計算パネルにアクセス
+			main_frame = self.GetTopLevelParent()
+			weight_panel = None
+			for title, panel in main_frame.panels:
+				if title == '重量計算':
+					weight_panel = panel
+					break
+			
+			if weight_panel is None:
+				wx.MessageBox('重量計算パネルが見つかりません。', 'エラー', wx.ICON_ERROR)
+				return
+			
+			# 重量計算書のデータを取得
+			components = weight_panel._get_components_from_grid()
+			wb = float(weight_panel.wb.GetValue() or 0)
+			payload_max = float(weight_panel.payload_max.GetValue() or 0)
+			os_a = float(weight_panel.os_a.GetValue() or 0)
+			os_b = 0.0
+			os_c = float(weight_panel.os_c.GetValue() or 0)
+			os_d = float(weight_panel.os_d.GetValue() or 0)
+			
+			if not components or wb <= 0:
+				wx.MessageBox('重量計算書の部品表とW.B.を入力してください。', '入力エラー', wx.ICON_WARNING)
+				return
+			
+			from lib.weight_calculation_sheet import WeightCalculationSheet
+			sheet = WeightCalculationSheet(
+				wheelbase_mm=wb,
+				payload_max_kg=payload_max,
+				os_a_mm=os_a,
+				os_b_mm=os_b,
+				os_c_mm=os_c,
+				os_d_mm=os_d,
+				components=components,
+			)
+			
+			# 空車時の前後軸重量を計算
+			wf0 = sheet.empty_front_axle_kg()
+			wr0 = sheet.empty_rear_axle_kg()
+			
+			# 積車時の前後軸重量を計算
+			osv = sheet.os_mm()
+			pf = (payload_max * osv / wb) if wb else 0.0
+			wf_loaded = wf0 + pf
+			wr_loaded = wr0 + (payload_max - pf)
+			
+			# タイヤサイズと基本情報を取得
+			tc = weight_panel.tc.GetValue()
+			tl = weight_panel.tl.GetValue()
+			cw = weight_panel.cw.GetValue()
+			ts_front = weight_panel.ts_front.GetValue()
+			ts_rear = weight_panel.ts_rear.GetValue()
+			
+			# タイヤ本数を前後に分配（前軸2本、残りを後軸と仮定）
+			try:
+				tc_total = int(float(tc or 0))
+				front_count = min(2, tc_total)  # 前軸は通常2本
+				rear_count = max(0, tc_total - front_count)
+			except:
+				front_count = 2
+				rear_count = 2
+			
+			# 前軸のデータを設定（積車時重量を使用）
+			self.front_tire_size.SetValue(ts_front or '')
+			self.front_tire_count.SetValue(str(front_count))
+			self.front_wr_kg.SetValue(f'{wf_loaded:.0f}')
+			self.front_recommended_per_tire.SetValue(tl or '')
+			self.front_install_width_cm.SetValue(cw or '')
+			
+			# 後軸のデータを設定（積車時重量を使用）
+			self.rear_tire_size.SetValue(ts_rear or '')
+			self.rear_tire_count.SetValue(str(rear_count))
+			self.rear_wr_kg.SetValue(f'{wr_loaded:.0f}')
+			self.rear_recommended_per_tire.SetValue(tl or '')
+			self.rear_install_width_cm.SetValue(cw or '')
+			
+			wx.MessageBox(
+				f'重量計算書からデータを取得しました。\n'
+				f'前軸: {front_count}本, {wf_loaded:.0f}kg (積車時)\n'
+				f'後軸: {rear_count}本, {wr_loaded:.0f}kg (積車時)',
+				'取得完了',
+				wx.ICON_INFORMATION
+			)
+			
+		except Exception as e:
+			wx.MessageBox(f'データ取得エラー: {str(e)}', 'エラー', wx.ICON_ERROR)
+	
 	def _collect_inputs(self):
 		def parse_one(prefix: str, label: str, tire_size, tire_count, wr_kg, rec, wcm):
 			n = int(float(tire_count.GetValue() or 0))
@@ -7207,7 +7700,7 @@ class Form2Panel(wx.Panel):
 
 class MainFrame(wx.Frame):
 	def __init__(self):
-		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1100,1000))
+		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1200,1250))
 		
 		# アイコン設定
 		icon_path = 'app_icon.ico'
@@ -7239,6 +7732,9 @@ class MainFrame(wx.Frame):
 		for title, panel in self.panels:
 			self.nb.AddPage(panel, title)
 		self.current_project_path = None
+		# 最近使ったファイルの履歴
+		self.recent_files = self._load_recent_files()
+		self.recent_menu_items = []
 		# タブ変更時に未入力チェック
 		self.nb.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_tab_changed)
 		# テキスト変更ハンドラを設定
@@ -7250,6 +7746,11 @@ class MainFrame(wx.Frame):
 		file_menu = wx.Menu()
 		file_menu.Append(wx.ID_NEW, '新規プロジェクト\tCtrl+N')
 		file_menu.Append(wx.ID_OPEN, 'プロジェクトを開く\tCtrl+O')
+		# 最近使ったファイルのサブメニュー
+		self.recent_menu = wx.Menu()
+		file_menu.AppendSubMenu(self.recent_menu, '最近使ったファイル')
+		self._update_recent_menu()
+		file_menu.AppendSeparator()
 		file_menu.Append(wx.ID_SAVE, 'プロジェクト保存\tCtrl+S')
 		file_menu.Append(wx.ID_SAVEAS, '名前を付けて保存\tCtrl+Shift+S')
 		file_menu.AppendSeparator()
@@ -7269,6 +7770,84 @@ class MainFrame(wx.Frame):
 		self.Bind(wx.EVT_MENU, self.on_exit, id=wx.ID_EXIT)
 		self.Bind(wx.EVT_MENU, self.on_export_unified, id=self.export_unified_id)
 		self.Centre()
+
+	def _load_recent_files(self):
+		"""最近使ったファイルの履歴を読み込む"""
+		recent_file_path = os.path.join(os.path.expanduser('~'), '.trailer_app_recent.json')
+		try:
+			if os.path.exists(recent_file_path):
+				with open(recent_file_path, 'r', encoding='utf-8') as f:
+					recent = json.load(f)
+					# ファイルが存在するもののみ保持
+					return [path for path in recent if os.path.exists(path)][:10]
+		except Exception:
+			pass
+		return []
+	
+	def _save_recent_files(self):
+		"""最近使ったファイルの履歴を保存"""
+		recent_file_path = os.path.join(os.path.expanduser('~'), '.trailer_app_recent.json')
+		try:
+			with open(recent_file_path, 'w', encoding='utf-8') as f:
+				json.dump(self.recent_files[:10], f, ensure_ascii=False, indent=2)
+		except Exception:
+			pass
+	
+	def _add_to_recent_files(self, path):
+		"""履歴にファイルを追加"""
+		# 既存の場合は削除してから先頭に追加
+		if path in self.recent_files:
+			self.recent_files.remove(path)
+		self.recent_files.insert(0, path)
+		self.recent_files = self.recent_files[:10]  # 最大10件
+		self._save_recent_files()
+		self._update_recent_menu()
+	
+	def _update_recent_menu(self):
+		"""最近使ったファイルのメニューを更新"""
+		# 既存のメニューアイテムをクリア
+		for item in self.recent_menu_items:
+			self.recent_menu.Delete(item)
+		self.recent_menu_items.clear()
+		
+		if not self.recent_files:
+			item = self.recent_menu.Append(wx.ID_ANY, '（履歴なし）')
+			item.Enable(False)
+			self.recent_menu_items.append(item)
+		else:
+			for i, path in enumerate(self.recent_files):
+				filename = os.path.basename(path)
+				label = f'{i+1}. {filename}'
+				item_id = wx.NewIdRef()
+				item = self.recent_menu.Append(item_id, label)
+				self.recent_menu_items.append(item)
+				self.Bind(wx.EVT_MENU, lambda evt, p=path: self._open_recent_file(p), id=item_id)
+			
+			if self.recent_files:
+				self.recent_menu.AppendSeparator()
+				clear_id = wx.NewIdRef()
+				clear_item = self.recent_menu.Append(clear_id, '履歴をクリア')
+				self.recent_menu_items.append(clear_item)
+				self.Bind(wx.EVT_MENU, self._clear_recent_files, id=clear_id)
+	
+	def _open_recent_file(self, path):
+		"""履歴から選択したファイルを開く"""
+		if not os.path.exists(path):
+			wx.MessageBox(f'ファイルが見つかりません:\n{path}', 'エラー', wx.ICON_ERROR)
+			self.recent_files.remove(path)
+			self._save_recent_files()
+			self._update_recent_menu()
+			return
+		
+		self._load_project_from_path(path)
+	
+	def _clear_recent_files(self, _):
+		"""履歴をクリア"""
+		res = wx.MessageBox('最近使ったファイルの履歴をクリアしますか？', '確認', wx.YES_NO|wx.ICON_QUESTION)
+		if res == wx.YES:
+			self.recent_files.clear()
+			self._save_recent_files()
+			self._update_recent_menu()
 
 	def setup_text_change_handlers(self):
 		"""全TextCtrlに変更イベントハンドラを設定"""
@@ -7344,6 +7923,10 @@ class MainFrame(wx.Frame):
 			if dlg.ShowModal() != wx.ID_OK:
 				return
 			path = dlg.GetPath()
+		self._load_project_from_path(path)
+	
+	def _load_project_from_path(self, path):
+		"""指定されたパスからプロジェクトを読み込む"""
 		try:
 			# ファイル形式を判定
 			if path.lower().endswith('.kjt'):
@@ -7359,6 +7942,7 @@ class MainFrame(wx.Frame):
 					panel.set_state(data.get(title, {}))
 			self.current_project_path = path
 			self.SetTitle(f'車両関連 統合計算ツール - {os.path.basename(path)}')
+			self._add_to_recent_files(path)
 			wx.CallAfter(self.update_tab_marks)
 			wx.MessageBox(f'プロジェクトを読み込みました:\n{path}','完了',wx.ICON_INFORMATION)
 		except Exception as e:
@@ -7397,6 +7981,7 @@ class MainFrame(wx.Frame):
 					json.dump(data, f, ensure_ascii=False, indent=2)
 			self.current_project_path = path
 			self.SetTitle(f'車両関連 統合計算ツール - {os.path.basename(path)}')
+			self._add_to_recent_files(path)
 			wx.CallAfter(self.update_tab_marks)
 			wx.MessageBox(f'プロジェクトを保存しました:\n{path}','完了',wx.ICON_INFORMATION)
 		except Exception as e:
