@@ -133,7 +133,7 @@ class WeightCalculationSheet:
         os_c_mm: float,
         os_d_mm: float,
         components: Sequence[SemiTrailerComponent],
-        header_text: str = "VI 実例集　5. トレーラ",
+        header_text: str = "",
     ):
         self.wheelbase_mm = float(wheelbase_mm)
         self.payload_max_kg = float(payload_max_kg)
@@ -239,7 +239,7 @@ class WeightCalculationSheet:
             "No.",
             "名　称",
             "重　量\nWi\n(kg)",
-            "キングピン\nLi\n(mm)",
+            "ヒッチカプラー\nLi\n(mm)",
             "モーメント\nWi × Li\n(kg-mm)",
             "重心高\nHi\n(mm)",
             "モーメント\nWi × Hi\n(kg-mm)",
@@ -398,7 +398,7 @@ class WeightCalculationSheet:
         H = (sum_wh / sum_w) if sum_w else 0.0
         Lr = _round_to_step(L, 5.0)
         Hr = _round_to_step(H, 5.0)
-        c.drawString(x + 10, y, "(a) 水平方向（キングピンからの距離）")
+        c.drawString(x + 10, y, "(a) 水平方向（ヒッチカプラーからの距離）")
         y -= 13
         c.drawString(x + 28, y, f"L = Σ (Wi × Li) ÷ Σ W = {sum_wl:.0f} ÷ {sum_w:.0f} = {L:.2f}mm  ({Lr:.0f}mm)")
         y -= 13

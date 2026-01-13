@@ -168,11 +168,11 @@ class TireLoadContactSheet:
         y = h - top
 
         if self.header_text:
-            c.setFont(font, 9)
+            c.setFont(font, 8)
             c.drawCentredString(w / 2, y, self.header_text)
-            y -= 18
+            y -= 16
 
-        c.setFont(font, 14)
+        c.setFont(font, 12)
         c.drawCentredString(w / 2, y, "《タイヤ負荷率及び接地圧計算書》")
         y -= 36
         return y
@@ -182,18 +182,18 @@ class TireLoadContactSheet:
 
         target = (d.target_label or "").strip() or "後輪"
         tire_txt = (d.tire_size_text or "").strip()
-        c.setFont(font, 11)
+        c.setFont(font, 10)
         if tire_txt:
             c.drawString(left, y, f"{target}タイヤ及び本数{tire_txt}：{d.tire_count_n}本")
         else:
             c.drawString(left, y, f"{target}タイヤ及び本数：{d.tire_count_n}本")
-        y -= 34
+        y -= 24
 
         # (a) 負荷率
-        c.setFont(font, 11)
+        c.setFont(font, 10)
         c.drawString(left - 25, y, "〈a〉")
         c.drawString(left, y, "負荷率")
-        y -= 28
+        y -= 20
 
         # Wr / (n×推奨荷重) ×100
         frac_h = _draw_fraction(
@@ -203,17 +203,17 @@ class TireLoadContactSheet:
             numerator="Wr",
             denominator="n × 推奨荷重",
             font=font,
-            size=16,
+            size=10,
         )
-        c.setFont(font, 14)
-        c.drawString(left + 200, y - 6, "× 100")
-        y -= frac_h + 10
+        c.setFont(font, 10)
+        c.drawString(left + 120, y - 6, "× 100")
+        y -= frac_h + 6
 
         # = Wr / (n×推奨荷重) ×100
         wr_s = _fmt_int(d.axle_load_wr_kg)
         n_s = f"{int(d.tire_count_n)}"
         rec_s = _fmt_int(d.recommended_load_per_tire_kg)
-        c.setFont(font, 12)
+        c.setFont(font, 10)
         c.drawString(left + 5, y, "=")
         frac_h = _draw_fraction(
             c,
@@ -222,27 +222,27 @@ class TireLoadContactSheet:
             numerator=wr_s,
             denominator=f"{n_s} × {rec_s}",
             font=font,
-            size=16,
+            size=10,
         )
-        c.setFont(font, 14)
-        c.drawString(left + 200, y - 6, "× 100")
-        y -= frac_h + 16
+        c.setFont(font, 10)
+        c.drawString(left + 120, y - 6, "× 100")
+        y -= frac_h + 10
 
         denom = float(d.tire_count_n) * float(d.recommended_load_per_tire_kg)
         load_rate = (float(d.axle_load_wr_kg) / denom * 100.0) if denom > 0 else 0.0
-        c.setFont(font, 12)
+        c.setFont(font, 10)
         c.drawString(
             left + 40,
             y,
             f"= {_fmt_1(load_rate)}% ≤ {_fmt_int(self.load_rate_limit_percent)}%",
         )
-        y -= 56
+        y -= 32
 
         # (b) 接地圧
-        c.setFont(font, 11)
+        c.setFont(font, 10)
         c.drawString(left - 25, y, "〈b〉")
         c.drawString(left, y, "接地圧")
-        y -= 28
+        y -= 20
 
         frac_h = _draw_fraction(
             c,
@@ -251,12 +251,12 @@ class TireLoadContactSheet:
             numerator="Wr",
             denominator="n × 設置幅",
             font=font,
-            size=16,
+            size=10,
         )
-        y -= frac_h + 10
+        y -= frac_h + 6
 
         width_s = _fmt_1(d.install_width_per_tire_cm)
-        c.setFont(font, 12)
+        c.setFont(font, 10)
         c.drawString(left + 5, y, "=")
         frac_h = _draw_fraction(
             c,
@@ -265,19 +265,19 @@ class TireLoadContactSheet:
             numerator=wr_s,
             denominator=f"{n_s} × {width_s}",
             font=font,
-            size=16,
+            size=10,
         )
-        y -= frac_h + 16
+        y -= frac_h + 10
 
         denom_p = float(d.tire_count_n) * float(d.install_width_per_tire_cm)
         pressure = (float(d.axle_load_wr_kg) / denom_p) if denom_p > 0 else 0.0
-        c.setFont(font, 12)
+        c.setFont(font, 10)
         c.drawString(
             left + 40,
             y,
             f"= {_fmt_1(pressure)}kg/cm ≤ {_fmt_int(self.contact_pressure_limit_kg_per_cm)}kg/cm",
         )
-        y -= 40
+        y -= 28
 
         return y
 
