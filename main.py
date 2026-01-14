@@ -4449,8 +4449,8 @@ class CouplerStrengthPanel(wx.Panel):
 		self.h = self._add(grid, '内高さ h [mm]', '', '130')
 		
 		# 材料特性
-		self.tensile = self._add(grid, '引張強さ [kg/cm²]', '', '410')
-		self.yield_pt = self._add(grid, '降伏点 [kg/cm²]', '', '240')
+		self.tensile = self._add(grid, '引張強さ [N/mm²]', '', '410')
+		self.yield_pt = self._add(grid, '降伏点 [N/mm²]', '', '240')
 		
 		grid.AddGrowableCol(1, 1); grid.AddGrowableCol(3, 1)
 		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
@@ -4510,12 +4510,11 @@ class CouplerStrengthPanel(wx.Panel):
 			Z = I / (H / 2.0)  # mm^3
 			
 			# 応力計算
-			sigma = M / Z  # N/mm^2 = MPa
-			sigma_kg_cm2 = sigma * 10.197  # kg/cm^2に変換
+			sigma = M / Z  # N/mm^2
 			
-			# 安全率
-			sf_yield = yield_pt / sigma_kg_cm2 if sigma_kg_cm2 > 0 else 0
-			sf_tensile = tensile / sigma_kg_cm2 if sigma_kg_cm2 > 0 else 0
+			# 安全率（すべてN/mm²単位で比較）
+			sf_yield = yield_pt / sigma if sigma > 0 else 0
+			sf_tensile = tensile / sigma if sigma > 0 else 0
 			
 			# 判定
 			if sf_yield >= 1.5:
@@ -4530,10 +4529,10 @@ class CouplerStrengthPanel(wx.Panel):
 
 曲げモーメント: {M / 1000:.1f} N·m
 断面係数 Z: {Z:.1f} mm³
-発生応力: {sigma:.2f} MPa ({sigma_kg_cm2:.1f} kg/cm²)
+発生応力: {sigma:.2f} N/mm²
 
-降伏点: {yield_pt:.1f} kg/cm²
-引張強さ: {tensile:.1f} kg/cm²
+降伏点: {yield_pt:.1f} N/mm²
+引張強さ: {tensile:.1f} N/mm²
 
 安全率（降伏点基準）: {sf_yield:.2f}
 安全率（引張強さ基準）: {sf_tensile:.2f}
@@ -4546,7 +4545,7 @@ class CouplerStrengthPanel(wx.Panel):
 				'W': W, 'Wp': Wp, 'L': L, 'Lp': Lp, 'Lf': Lf,
 				'B': B, 'H': H, 'b': b, 'h': h,
 				'tensile': tensile, 'yield_pt': yield_pt,
-				'M': M, 'Z': Z, 'sigma': sigma, 'sigma_kg_cm2': sigma_kg_cm2,
+				'M': M, 'Z': Z, 'sigma': sigma,
 				'sf_yield': sf_yield, 'sf_tensile': sf_tensile,
 				'judgment': judgment
 			}
@@ -4644,13 +4643,13 @@ class CouplerStrengthPanel(wx.Panel):
 		c.drawString(70, y, f'連結中心から装備品: {self.last["Lp"]:.0f} mm'); y -= 15
 		c.drawString(70, y, f'フレーム長さ: {self.last["Lf"]:.0f} mm'); y -= 15
 		c.drawString(70, y, f'断面寸法: B={self.last["B"]:.0f}, H={self.last["H"]:.0f}, b={self.last["b"]:.0f}, h={self.last["h"]:.0f} mm'); y -= 15
-		c.drawString(70, y, f'材料: 引張強さ={self.last["tensile"]:.0f}, 降伏点={self.last["yield_pt"]:.0f} kg/cm²'); y -= 30
+		c.drawString(70, y, f'材料: 引張強さ={self.last["tensile"]:.0f}, 降伏点={self.last["yield_pt"]:.0f} N/mm²'); y -= 30
 		
 		# 計算結果
 		c.drawString(50, y, '【計算結果】'); y -= 20
 		c.drawString(70, y, f'曲げモーメント: {self.last["M"] / 1000:.1f} N·m'); y -= 15
 		c.drawString(70, y, f'断面係数 Z: {self.last["Z"]:.1f} mm³'); y -= 15
-		c.drawString(70, y, f'発生応力: {self.last["sigma"]:.2f} MPa ({self.last["sigma_kg_cm2"]:.1f} kg/cm²)'); y -= 15
+		c.drawString(70, y, f'発生応力: {self.last["sigma"]:.2f} N/mm²'); y -= 15
 		c.drawString(70, y, f'安全率（降伏点基準）: {self.last["sf_yield"]:.2f}'); y -= 15
 		c.drawString(70, y, f'安全率（引張強さ基準）: {self.last["sf_tensile"]:.2f}'); y -= 15
 		c.drawString(70, y, f'判定: {self.last["judgment"]}'); y -= 15
@@ -4890,6 +4889,421 @@ class HitchStrengthPanel(wx.Panel):
 		            f' (基準: > 1.3)'); y -= 15
 		
 		c.save()
+
+class HitchCouplerStrengthPanel(wx.Panel):
+	"""連結装置（ヒッチカプラー）強度計算パネル"""
+	def __init__(self, parent):
+		super().__init__(parent)
+		self.last = None
+		v = wx.BoxSizer(wx.VERTICAL)
+		
+		# タイトル
+		t = wx.StaticText(self, label='連結装置強度計算（ヒッチカプラー）')
+		f = t.GetFont(); f.PointSize += 2; f = f.Bold(); t.SetFont(f)
+		v.Add(t, 0, wx.ALL, 6)
+		
+		# 計算概要説明入力エリア
+		desc_box = wx.StaticBoxSizer(wx.StaticBox(self, label='計算概要（任意）'), wx.VERTICAL)
+		self.description = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP)
+		self.description.SetHint('計算に関する概要、条件、備考など記入してください（PDF出力時に冒頭に表示されます）')
+		desc_box.Add(self.description, 1, wx.EXPAND | wx.ALL, 4)
+		v.Add(desc_box, 0, wx.EXPAND | wx.ALL, 6)
+		
+		# 入力フィールド
+		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
+		grid = wx.FlexGridSizer(0, 4, 6, 8)
+		
+		# 荷重条件
+		self.P_vertical = self._add(grid, '垂直荷重 P [kg]', '', '1500')
+		self.H_horizontal = self._add(grid, '水平牽引力 H [kg]', '', '300')
+		
+		# カプラーボディ寸法
+		self.body_width = self._add(grid, 'カプラーボディ幅 [mm]', '', '80')
+		self.body_thickness = self._add(grid, 'カプラーボディ厚さ [mm]', '', '10')
+		self.body_length = self._add(grid, 'カプラー取付長さ L [mm]', '', '150')
+		
+		# ピン寸法
+		self.pin_diameter = self._add(grid, 'ボール連結ピン径 [mm]', '', '25')
+		
+		# 材料特性
+		self.tensile_strength = self._add(grid, '引張強さ [N/mm²]', '', '410')
+		self.yield_strength = self._add(grid, '降伏点 [N/mm²]', '', '240')
+		self.shear_strength = self._add(grid, 'せん断強さ [N/mm²]', '', '246')
+		
+		# 安全率係数
+		self.safety_factor = self._add(grid, '荷重倍率', '', '2.5')
+		
+		grid.AddGrowableCol(1, 1); grid.AddGrowableCol(3, 1)
+		box.Add(grid, 0, wx.EXPAND | wx.ALL, 6)
+		v.Add(box, 0, wx.EXPAND | wx.ALL, 6)
+		
+		# 計算・PDF出力ボタン
+		row = wx.BoxSizer(wx.HORIZONTAL)
+		btn_calc = wx.Button(self, label='計算')
+		btn_pdf = wx.Button(self, label='PDF出力')
+		btn_pdf.Enable(False)
+		row.Add(btn_calc, 0, wx.RIGHT, 8)
+		row.Add(btn_pdf, 0)
+		v.Add(row, 0, wx.ALIGN_CENTER | wx.ALL, 6)
+		self.btn_pdf = btn_pdf
+		
+		# 結果表示エリア
+		self.result_text = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+		v.Add(self.result_text, 1, wx.EXPAND | wx.ALL, 6)
+		
+		# イベント
+		btn_calc.Bind(wx.EVT_BUTTON, lambda e: (self.on_calc(), e.Skip()))
+		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
+		
+		
+		self.SetSizer(v)
+	
+	def _add(self, sizer, label, default='', hint=''):
+		"""入力フィールド追加ヘルパー"""
+		t = wx.TextCtrl(self, value=default, style=wx.TE_RIGHT)
+		if hint:
+			t.SetHint(hint)
+		sizer.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add(t, 0, wx.EXPAND)
+		return t
+	
+	def _f(self, ctrl):
+		"""TextCtrlから数値を取得"""
+		v = ctrl.GetValue().strip()
+		if not v:
+			raise ValueError('未入力の項目があります')
+		return float(v)
+		self.bolt_count.Enable(is_bolt)
+		
+		# 溶接用フィールド
+		self.weld_length.Enable(not is_bolt)
+		self.weld_size.Enable(not is_bolt)
+	
+	def on_calc(self):
+		"""計算実行"""
+		try:
+			import math
+			
+			# 入力値取得
+			P = self._f(self.P_vertical)
+			H = self._f(self.H_horizontal)
+			body_w = self._f(self.body_width)
+			body_t = self._f(self.body_thickness)
+			L = self._f(self.body_length)
+			pin_d = self._f(self.pin_diameter)
+			# 入力された材料強度（N/mm²）をそのまま使用
+			tensile = self._f(self.tensile_strength)  # N/mm²
+			yield_str = self._f(self.yield_strength)  # N/mm²
+			shear_str = self._f(self.shear_strength)  # N/mm²
+			factor = self._f(self.safety_factor)
+			
+			# 合成荷重
+			P_combined = math.sqrt(P**2 + H**2)
+			
+			# 単位換算
+			# N = kg × 9.80665, mm² = (cm × 10)²
+			# N/mm² = kg/cm² × 0.0980665
+			KG_CM2_TO_N_MM2 = 0.0980665
+			
+			# 1. カプラーボディの引張応力 σ = P / A
+			A_body = body_w * body_t  # mm²
+			sigma_tension = (P * 9.80665) / A_body if A_body > 0 else 0  # N/mm²
+			
+			# 2. ピン部分のせん断応力 τ = P / A
+			# ピンは2面せん断と仮定
+			A_pin = math.pi * (pin_d ** 2) / 4.0  # mm²
+			tau_pin = (P * 9.80665) / (2 * A_pin) if A_pin > 0 else 0  # N/mm²
+			
+			# 3. カプラーボディの曲げ応力 σb = M / Z
+			# 垂直荷重と水平荷重による合成モーメント
+			M_vertical = P * L  # kg·mm
+			M_horizontal = H * L  # kg·mm
+			M_combined = math.sqrt(M_vertical**2 + M_horizontal**2)  # kg·mm
+			
+			# 断面係数 Z（矩形断面）= b * h² / 6
+			Z_body = body_w * (body_t ** 2) / 6.0  # mm³
+			sigma_bending = (M_combined * 9.80665) / Z_body if Z_body > 0 else 0  # N/mm²
+			
+			# 5. 最大主応力（引張応力と曲げ応力の合成）
+			sigma_max = sigma_tension + sigma_bending  # N/mm²
+			
+			# 6. 安全率計算（すべてN/mm²の単位で）
+			sf_tension_break = tensile / (factor * sigma_max) if sigma_max > 0 else 0
+			sf_tension_yield = yield_str / (factor * sigma_max) if sigma_max > 0 else 0
+			sf_pin_shear = shear_str / (factor * tau_pin) if tau_pin > 0 else 0
+			
+			# 判定
+			ok_tension_break = sf_tension_break >= 1.6
+			ok_tension_yield = sf_tension_yield >= 1.3
+			ok_pin_shear = sf_pin_shear >= 1.6
+			
+			# 結果保存
+			self.last = {
+				'P': P, 'H': H,
+				'body_w': body_w, 'body_t': body_t, 'L': L,
+				'pin_d': pin_d,
+				'tensile': tensile, 'yield_str': yield_str, 'shear_str': shear_str,
+				'factor': factor,
+				'A_body': A_body, 'sigma_tension': sigma_tension,
+				'A_pin': A_pin, 'tau_pin': tau_pin,
+				'M_vertical': M_vertical, 'M_horizontal': M_horizontal,
+				'M_combined': M_combined, 'Z_body': Z_body, 'sigma_bending': sigma_bending,
+				'P_combined': P_combined,
+				'sigma_max': sigma_max,
+				'sf_tension_break': sf_tension_break, 'sf_tension_yield': sf_tension_yield,
+				'sf_pin_shear': sf_pin_shear,
+				'ok_tension_break': ok_tension_break, 'ok_tension_yield': ok_tension_yield,
+				'ok_pin_shear': ok_pin_shear,
+				'description': self.description.GetValue(),
+			}
+
+			# 結果テキスト作成
+			text_lines = [
+				'《連結装置強度計算書（ヒッチカプラー）》',
+				'',
+				'○荷重条件',
+				f'垂直荷重 P : {P:.0f} kg',
+				f'水平牽引力 H : {H:.0f} kg',
+				f'合成荷重 : {P_combined:.0f} kg',
+				'',
+				'○カプラー寸法',
+				f'ボディ幅 : {body_w:.0f} mm',
+				f'ボディ厚さ : {body_t:.0f} mm',
+				f'取付長さ L : {L:.0f} mm',
+				f'ピン径 : {pin_d:.0f} mm',
+				'',
+				'○材料特性',
+				f'引張強さ : {tensile:.0f} N/mm²',
+				f'降伏点 : {yield_str:.0f} N/mm²',
+				f'せん断強さ : {shear_str:.0f} N/mm²',
+				f'荷重倍率 : {factor:.1f}',
+				'',
+				'○応力計算',
+				'1. カプラーボディの引張応力 σ = P / A',
+				f'   断面積 A = {A_body:.2f} mm²',
+				f'   引張応力 σ = {sigma_tension:.2f} N/mm²',
+				'',
+				'2. ピンのせん断応力 τ = P / (2A)  ※2面せん断',
+				f'   ピン断面積 A = {A_pin:.3f} mm²',
+				f'   せん断応力 τ = {tau_pin:.2f} N/mm²',
+				'',
+				'3. カプラーボディの曲げ応力 σb = M / Z',
+				f'   垂直モーメント Mv = {M_vertical:.0f} kg·mm',
+				f'   水平モーメント Mh = {M_horizontal:.0f} kg·mm',
+				f'   合成モーメント M = {M_combined:.0f} kg·mm',
+				f'   断面係数 Z = {Z_body:.3f} mm³',
+				f'   曲げ応力 σb = {sigma_bending:.2f} N/mm²',
+				'',
+				'○合成応力',
+				f'最大主応力（引張+曲げ）σmax = {sigma_max:.2f} N/mm²',
+				'',
+				'○安全率',
+				f'カプラーボディ破断安全率 = {sf_tension_break:.2f}  → {"OK" if ok_tension_break else "NG"} (基準 1.6以上)',
+				f'カプラーボディ降伏安全率 = {sf_tension_yield:.2f}  → {"OK" if ok_tension_yield else "NG"} (基準 1.3以上)',
+				f'ピンせん断安全率 = {sf_pin_shear:.2f}  → {"OK" if ok_pin_shear else "NG"} (基準 1.6以上)',
+			]
+
+			
+			self.result_text.SetValue('\n'.join(text_lines))
+			self.btn_pdf.Enable(True)
+			
+		except ValueError as e:
+			wx.MessageBox(str(e), '入力エラー', wx.ICON_ERROR)
+		except Exception as e:
+			wx.MessageBox(f'計算エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def on_export_pdf(self):
+		"""PDF出力"""
+		if self.last is None:
+			wx.MessageBox('先に計算を実行してください。', 'PDF出力', wx.ICON_INFORMATION)
+			return
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		
+		with wx.FileDialog(
+			self, message='PDF保存', wildcard='PDF files (*.pdf)|*.pdf',
+			style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+			defaultFile='連結装置強度計算書_ヒッチカプラー.pdf'
+		) as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			path = dlg.GetPath()
+		
+		try:
+			self.export_to_path(path)
+			_open_saved_pdf(path)
+			wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF出力中エラー: {e}', 'エラー', wx.ICON_ERROR)
+	
+	def export_to_path(self, path):
+		"""PDF出力処理"""
+		if self.last is None or not _REPORTLAB_AVAILABLE:
+			return
+		
+		v = self.last
+		c = _pdf_canvas.Canvas(path, pagesize=_A4)
+		W, H = _A4
+		font = self._pdf_font()
+		left = 40
+		y = H - 40
+		
+		c.setFont(font, 14)
+		c.drawString(left, y, '連結装置強度計算書（ヒッチカプラー）')
+		y -= 22
+		c.setFont(font, 9)
+		c.drawString(left, y, f'※荷重倍率 {v["factor"]:.1f} で評価')
+		y -= 18
+		
+		# 計算概要説明を表示
+		if v.get('description', '').strip():
+			c.setFont(font, 10)
+			c.drawString(left, y, '【計算概要】')
+			y -= 14
+			c.setFont(font, 9)
+			desc_lines = v['description'].strip().split('\n')
+			for line in desc_lines:
+				if y < 60:
+					c.showPage()
+					c.setFont(font, 9)
+					y = H - 40
+				c.drawString(left, y, line)
+				y -= 12
+			y -= 6
+		
+		def table(x, y, col_w, row_h, rows):
+			Wtot = sum(col_w)
+			Ht = row_h * len(rows)
+			c.rect(x, y - Ht, Wtot, Ht)
+			for i in range(1, len(rows)):
+				c.line(x, y - row_h * i, x + Wtot, y - row_h * i)
+			cx = x
+			for wcol in col_w[:-1]:
+				cx += wcol
+				c.line(cx, y, cx, y - Ht)
+			for r, row in enumerate(rows):
+				cy = y - row_h * (r + 1) + 5
+				cx = x + 4
+				for j, cell in enumerate(row):
+					c.drawString(cx, cy, str(cell))
+					cx += col_w[j]
+			return y - Ht - 10
+		
+		# 荷重条件
+		y = table(left, y, [220, 140, 120], 18, [
+			['項目', '値', '単位'],
+			['垂直荷重 P', f"{v['P']:.0f}", 'kg'],
+			['水平牽引力 H', f"{v['H']:.0f}", 'kg'],
+			['合成荷重', f"{v['P_combined']:.0f}", 'kg'],
+		])
+		
+		
+		# 寸法
+		y = table(left, y, [220, 140, 120], 18, [
+			['カプラーボディ幅', f"{v['body_w']:.0f}", 'mm'],
+			['カプラーボディ厚さ', f"{v['body_t']:.0f}", 'mm'],
+			['取付長さ L', f"{v['L']:.0f}", 'mm'],
+			['ピン径', f"{v['pin_d']:.0f}", 'mm'],
+		])
+		
+		# 材料
+		y = table(left, y, [220, 140, 120], 18, [
+			['引張強さ', f"{v['tensile']:.0f}", 'N/mm²'],
+			['降伏点', f"{v['yield_str']:.0f}", 'N/mm²'],
+			['せん断強さ', f"{v['shear_str']:.0f}", 'N/mm²'],
+		])
+		
+		# 応力計算結果
+		c.setFont(font, 10)
+		c.drawString(left, y, '応力計算')
+		y -= 14
+		c.setFont(font, 9)
+		c.drawString(left, y, f"1. カプラーボディ引張応力: σ = {v['sigma_tension']:.2f} N/mm²")
+		y -= 12
+		c.drawString(left, y, f"2. ピンせん断応力: τ = {v['tau_pin']:.2f} N/mm²")
+		y -= 12
+		c.drawString(left, y, f"3. カプラーボディ曲げ応力: σb = {v['sigma_bending']:.2f} N/mm²")
+		y -= 12
+		c.drawString(left, y, f"最大主応力（引張+曲げ）: σmax = {v['sigma_max']:.2f} N/mm²")
+		y -= 20
+		
+		# 安全率
+		c.setFont(font, 10)
+		c.drawString(left, y, '安全率')
+		y -= 14
+		c.setFont(font, 9)
+		c.drawString(left, y, f"カプラーボディ破断: {v['sf_tension_break']:.2f}  {'OK' if v['ok_tension_break'] else 'NG'} (基準 1.6以上)")
+		y -= 12
+		c.drawString(left, y, f"カプラーボディ降伏: {v['sf_tension_yield']:.2f}  {'OK' if v['ok_tension_yield'] else 'NG'} (基準 1.3以上)")
+		y -= 12
+		c.drawString(left, y, f"ピンせん断: {v['sf_pin_shear']:.2f}  {'OK' if v['ok_pin_shear'] else 'NG'} (基準 1.6以上)")
+		y -= 18
+		
+		# 総合判定
+		c.setFont(font, 10)
+		all_ok = all([v['ok_tension_break'], v['ok_tension_yield'], v['ok_pin_shear']])
+		c.drawString(left, y, f"判定: {'OK' if all_ok else 'NG'}")
+		
+		c.showPage()
+		c.save()
+
+	
+	def _pdf_font(self):
+		"""PDF用フォント取得"""
+		font = 'Helvetica'
+		for f in [
+			'C:/Windows/Fonts/msgothic.ttc',
+			'C:/Windows/Fonts/meiryo.ttc',
+			'C:/Windows/Fonts/yugothic.ttf',
+			'ipaexg.ttf',
+			'ipaexm.ttf',
+			'fonts/ipaexg.ttf',
+			'fonts/ipaexm.ttf',
+		]:
+			if os.path.exists(f):
+				try:
+					_pdfmetrics.registerFont(_TTFont('JPCoupler', f))
+					font = 'JPCoupler'
+					break
+				except Exception:
+					pass
+		return font
+	
+	def get_state(self):
+		"""状態を取得"""
+		return {
+			'P_vertical': self.P_vertical.GetValue(),
+			'H_horizontal': self.H_horizontal.GetValue(),
+			'body_width': self.body_width.GetValue(),
+			'body_thickness': self.body_thickness.GetValue(),
+			'body_length': self.body_length.GetValue(),
+			'pin_diameter': self.pin_diameter.GetValue(),
+			'tensile_strength': self.tensile_strength.GetValue(),
+			'yield_strength': self.yield_strength.GetValue(),
+			'shear_strength': self.shear_strength.GetValue(),
+			'safety_factor': self.safety_factor.GetValue(),
+			'description': self.description.GetValue(),
+			'last': self.last,
+		}
+	
+	def set_state(self, state):
+		"""状態を復元"""
+		if not state:
+			return
+		self.P_vertical.SetValue(str(state.get('P_vertical', '')))
+		self.H_horizontal.SetValue(str(state.get('H_horizontal', '')))
+		self.body_width.SetValue(str(state.get('body_width', '')))
+		self.body_thickness.SetValue(str(state.get('body_thickness', '')))
+		self.body_length.SetValue(str(state.get('body_length', '')))
+		self.pin_diameter.SetValue(str(state.get('pin_diameter', '')))
+		self.tensile_strength.SetValue(str(state.get('tensile_strength', '')))
+		self.yield_strength.SetValue(str(state.get('yield_strength', '')))
+		self.shear_strength.SetValue(str(state.get('shear_strength', '')))
+		self.safety_factor.SetValue(str(state.get('safety_factor', '')))
+		self.description.SetValue(str(state.get('description', '')))
+		self.last = state.get('last', self.last)
+		self.btn_pdf.Enable(self.last is not None)
 
 class BrakeStrengthPanel(wx.Panel):
 	"""制動装置（ブレーキドラム）強度計算パネル"""
@@ -6026,16 +6440,23 @@ class TwoAxleLeafSpringPanel(wx.Panel):
 
 
 class LeafSpringCushionStrengthPanel(wx.Panel):
-	"""緩衝装置（リーフスプリング）強度計算書"""
+	"""緩衝装置強度計算書"""
 
 	def __init__(self, parent):
 		super().__init__(parent)
 		self.last: dict | None = None
 
 		main = wx.BoxSizer(wx.VERTICAL)
-		t = wx.StaticText(self, label='緩衝装置強度（リーフスプリング）')
+		t = wx.StaticText(self, label='緩衝装置強度')
 		f = t.GetFont(); f.PointSize += 2; f = f.Bold(); t.SetFont(f)
 		main.Add(t, 0, wx.ALL, 6)
+
+		# 計算概要説明入力エリア
+		desc_box = wx.StaticBoxSizer(wx.StaticBox(self, label='計算概要（任意）'), wx.VERTICAL)
+		self.description = wx.TextCtrl(self, style=wx.TE_MULTILINE | wx.TE_WORDWRAP)
+		self.description.SetHint('計算に関する概要、条件、備考など記入してください（PDF出力時に冒頭に表示されます）')
+		desc_box.Add(self.description, 1, wx.EXPAND | wx.ALL, 4)
+		main.Add(desc_box, 0, wx.EXPAND | wx.ALL, 6)
 
 		box = wx.StaticBoxSizer(wx.StaticBox(self, label='入力'), wx.VERTICAL)
 		grid = wx.FlexGridSizer(0, 4, 6, 8)
@@ -6150,10 +6571,11 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 				'fy': fy,
 				'ok_fb': ok_fb,
 				'ok_fy': ok_fy,
+				'description': self.description.GetValue(),
 			}
 
 			text = '\n'.join([
-				'《緩衝装置強度計算書（リーフスプリング）》',
+				'《緩衝装置強度計算書》',
 				'',
 				'○寸法諸元',
 				f"後軸重量 WR : {WR:.0f} kg",
@@ -6180,7 +6602,7 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 				f"破壊安全率 fb = σB / ({k:.1f}×σ) = {fb:.2f}  → {'OK' if ok_fb else 'NG'} (基準 1.6以上)",
 				f"降伏安全率 fy = σY / ({k:.1f}×σ) = {fy:.2f}  → {'OK' if ok_fy else 'NG'} (基準 1.3以上)",
 			])
-			show_result('緩衝装置強度（リーフスプリング）', text)
+			show_result('緩衝装置強度', text)
 			self.btn_pdf.Enable(True)
 		except ValueError as e:
 			wx.MessageBox(str(e), '入力エラー', wx.ICON_ERROR)
@@ -6219,7 +6641,7 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 			message='PDF保存',
 			wildcard='PDF files (*.pdf)|*.pdf',
 			style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-			defaultFile='緩衝装置強度計算書_リーフスプリング.pdf',
+			defaultFile='緩衝装置強度計算書.pdf',
 		) as dlg:
 			if dlg.ShowModal() != wx.ID_OK:
 				return
@@ -6242,11 +6664,28 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 		y = H - 40
 
 		c.setFont(font, 14)
-		c.drawString(left, y, '緩衝装置強度計算書（リーフスプリング）')
+		c.drawString(left, y, '緩衝装置強度計算書')
 		y -= 22
 		c.setFont(font, 9)
-		c.drawString(left, y, '※添付例に合わせ g=9.8、係数2.5で評価')
+		#c.drawString(left, y, '※添付例に合わせ g=9.8、係数2.5で評価')
 		y -= 18
+
+		# 計算概要説明を表示
+		if v.get('description', '').strip():
+			c.setFont(font, 10)
+			c.drawString(left, y, '【概要】')
+			y -= 14
+			c.setFont(font, 9)
+			# 説明文を複数行で表示
+			desc_lines = v['description'].strip().split('\n')
+			for line in desc_lines:
+				if y < 60:  # ページの余白を考慮
+					c.showPage()
+					c.setFont(font, 9)
+					y = H - 40
+				c.drawString(left, y, line)
+				y -= 12
+			y -= 6
 
 		def table(x, y, col_w, row_h, rows):
 			Wtot = sum(col_w)
@@ -6326,6 +6765,7 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 			'material': self.material.GetValue(),
 			'sigma_b': self.sigma_b.GetValue(),
 			'sigma_y': self.sigma_y.GetValue(),
+			'description': self.description.GetValue(),
 			'last': self.last,
 		}
 
@@ -6343,6 +6783,7 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 		self.material.SetValue(str(state.get('material', self.material.GetValue())))
 		self.sigma_b.SetValue(str(state.get('sigma_b', self.sigma_b.GetValue())))
 		self.sigma_y.SetValue(str(state.get('sigma_y', self.sigma_y.GetValue())))
+		self.description.SetValue(str(state.get('description', self.description.GetValue())))
 		self.last = state.get('last', self.last)
 		self.btn_pdf.Enable(self.last is not None)
 
@@ -7721,6 +8162,7 @@ class MainFrame(wx.Frame):
 			('車軸強度', AxleStrengthPanel(self.nb)),
 			('車枠強度', FrameStrengthPanel(self.nb)),
 			('連結部強度', CouplerStrengthPanel(self.nb)),
+			('連結装置強度（カプラー）', HitchCouplerStrengthPanel(self.nb)),
 			('ヒッチメンバー強度', HitchStrengthPanel(self.nb)),
 			('制動装置強度', BrakeStrengthPanel(self.nb)),
 			('牽引車諸元', TowingSpecPanel(self.nb)),
