@@ -16,11 +16,13 @@ try:
 	_REPORTLAB_AVAILABLE = True
 except ImportError:
 	_REPORTLAB_AVAILABLE = False
+
 try:
 	from PyPDF2 import PdfMerger as _PdfMerger
 	_PYPDF2_AVAILABLE = True
 except ImportError:
 	_PYPDF2_AVAILABLE = False
+
 from lib import (
 	compute_weight_metrics,
 	calc_braking_force, check_strength, calc_stability_angle,
@@ -38,304 +40,7 @@ from lib.form_issuer import (
 )
 from lib.weight_calculation_sheet import WeightCalculationSheet
 
-# 共通結果表示ウィンドウ (全パネルから利用) / 車枠強度グラフウィンドウ
 RESULT_WINDOW = None
-FRAME_GRAPH_WINDOW = None
-
-class FrameGraphWindow(wx.Frame):
-	def __init__(self):
-		super().__init__(None, title='車枠強度グラフ', size=wx.Size(960, 420))
-		self.bmp = wx.StaticBitmap(self, bitmap=wx.BitmapBundle.FromBitmap(wx.Bitmap(960, 360)))
-		sizer = wx.BoxSizer(wx.VERTICAL)
-		sizer.Add(self.bmp, 1, wx.EXPAND|wx.ALL, 6)
-		self.SetSizer(sizer)
-		self.Bind(wx.EVT_CLOSE, self.on_close)
-	def on_close(self, event):
-		global FRAME_GRAPH_WINDOW
-		FRAME_GRAPH_WINDOW = None
-		self.Destroy()
-	def set_data(self, data: dict):
-		try:
-			path = create_frame_diagram_png(data)
-			if path:
-				b = wx.Bitmap(path, wx.BITMAP_TYPE_PNG)
-				self.bmp.SetBitmap(wx.BitmapBundle.FromBitmap(b))
-				self.Layout()
-		except Exception:
-			pass
-
-class ResultWindow(wx.Frame):
-	def __init__(self):
-		super().__init__(None, title='計算結果', size=wx.Size(560, 620))
-		self.txt = wx.TextCtrl(self, style=wx.TE_MULTILINE|wx.TE_READONLY|wx.VSCROLL)
-		sizer = wx.BoxSizer(wx.VERTICAL)
-		sizer.Add(self.txt, 1, wx.EXPAND|wx.ALL, 4)
-		self.SetSizer(sizer)
-		self.Bind(wx.EVT_CLOSE, self.on_close)
-	def on_close(self, event):
-		global RESULT_WINDOW
-		RESULT_WINDOW = None
-		self.Destroy()
-	def set_text(self, text: str):
-		self.txt.SetValue(text)
-	def set_content(self, title: str, text: str):
-		try:
-			self.SetTitle(title)
-		except Exception:
-			pass
-		self.txt.SetValue(text)
-
-def show_frame_graph(data: dict):
-	"""車枠強度グラフを別ウィンドウに表示/更新"""
-	global FRAME_GRAPH_WINDOW
-	if FRAME_GRAPH_WINDOW is None or not FRAME_GRAPH_WINDOW:
-		FRAME_GRAPH_WINDOW = FrameGraphWindow()
-	try:
-		if not FRAME_GRAPH_WINDOW.IsShown():
-			FRAME_GRAPH_WINDOW.Show()
-		FRAME_GRAPH_WINDOW.set_data(data)
-		FRAME_GRAPH_WINDOW.Raise()
-	except RuntimeError:
-		# ウィンドウが削除済みの場合、再作成
-		FRAME_GRAPH_WINDOW = FrameGraphWindow()
-		FRAME_GRAPH_WINDOW.Show()
-		FRAME_GRAPH_WINDOW.set_data(data)
-		FRAME_GRAPH_WINDOW.Raise()
-
-def create_cross_section_diagram_png(B: float, H: float, b: float, h: float, tw: float=0, tf: float=0, cross_type: str='rect', width=300, height=300) -> str:
-	"""断面図を生成してPNGパスを返す (mm単位)"""
-	try:
-		bmp = wx.Bitmap(width, height)
-		dc = wx.MemoryDC(bmp)
-		dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
-		dc.Clear()
-		# 中心位置
-		cx, cy = width // 2, height // 2
-		# スケール (最大寸法を基準に)
-		max_dim = max(B, H)
-		scale = min(200, (min(width, height) - 60) / max_dim) if max_dim > 0 else 1
-		if cross_type == 'hbeam':
-			# H形鋼
-			w_outer = B * scale
-			h_outer = H * scale
-			w_web = tw * scale
-			h_flange = tf * scale
-			# 外形
-			dc.SetBrush(wx.Brush(wx.Colour(180,180,180)))
-			dc.SetPen(wx.Pen(wx.Colour(0,0,0),2))
-			# 上フランジ
-			dc.DrawRectangle(int(cx - w_outer/2), int(cy - h_outer/2), int(w_outer), int(h_flange))
-			# ウェブ
-			dc.DrawRectangle(int(cx - w_web/2), int(cy - h_outer/2 + h_flange), int(w_web), int(h_outer - 2*h_flange))
-			# 下フランジ
-			dc.DrawRectangle(int(cx - w_outer/2), int(cy + h_outer/2 - h_flange), int(w_outer), int(h_flange))
-			# 寸法線
-			dc.SetPen(wx.Pen(wx.Colour(100,100,100),1))
-			dc.SetTextForeground(wx.Colour(0,0,0))
-			dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-			# B寸法
-			y_dim = int(cy - h_outer/2 - 15)
-			dc.DrawLine(int(cx - w_outer/2), y_dim, int(cx + w_outer/2), y_dim)
-			dc.DrawText(f'B={B:.1f}', int(cx - 30), y_dim - 15)
-			# H寸法
-			x_dim = int(cx + w_outer/2 + 15)
-			dc.DrawLine(x_dim, int(cy - h_outer/2), x_dim, int(cy + h_outer/2))
-			dc.DrawText(f'H={H:.1f}', x_dim + 5, int(cy - 10))
-			# tw寸法 (ウェブの外側に表示)
-			dc.DrawText(f'tw={tw:.1f}', int(cx + w_web/2 + 8), int(cy))
-			# tf寸法 (上フランジの外側に表示)
-			dc.DrawText(f'tf={tf:.1f}', int(cx - w_outer/2 - 45), int(cy - h_outer/2 + h_flange/2))
-		else:
-			# 中抜き矩形
-			w_outer = B * scale
-			h_outer = H * scale
-			w_inner = b * scale
-			h_inner = h * scale
-			# 外形（グレー塗りつぶし）
-			dc.SetBrush(wx.Brush(wx.Colour(180,180,180)))
-			dc.SetPen(wx.Pen(wx.Colour(0,0,0),2))
-			dc.DrawRectangle(int(cx - w_outer/2), int(cy - h_outer/2), int(w_outer), int(h_outer))
-			# 内空部（白抜き）
-			dc.SetBrush(wx.Brush(wx.Colour(255,255,255)))
-			dc.SetPen(wx.Pen(wx.Colour(0,0,0),1))
-			dc.DrawRectangle(int(cx - w_inner/2), int(cy - h_inner/2), int(w_inner), int(h_inner))
-			# 寸法線
-			dc.SetPen(wx.Pen(wx.Colour(100,100,100),1))
-			dc.SetTextForeground(wx.Colour(0,0,0))
-			dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-			# B寸法（上）
-			y_dim = int(cy - h_outer/2 - 15)
-			dc.DrawLine(int(cx - w_outer/2), y_dim, int(cx + w_outer/2), y_dim)
-			dc.DrawText(f'B={B:.1f}', int(cx - 30), y_dim - 15)
-			# H寸法（右）
-			x_dim = int(cx + w_outer/2 + 15)
-			dc.DrawLine(x_dim, int(cy - h_outer/2), x_dim, int(cy + h_outer/2))
-			dc.DrawText(f'H={H:.1f}', x_dim + 5, int(cy - 10))
-			# b寸法（内側上）
-			y_dim_inner = int(cy - h_inner/2 + 15)
-			dc.DrawLine(int(cx - w_inner/2), y_dim_inner, int(cx + w_inner/2), y_dim_inner)
-			dc.DrawText(f'b={b:.1f}', int(cx - 25), y_dim_inner - 15)
-			# h寸法（内側右）
-			x_dim_inner = int(cx + w_inner/2 - 15)
-			dc.DrawLine(x_dim_inner, int(cy - h_inner/2), x_dim_inner, int(cy + h_inner/2))
-			dc.DrawText(f'h={h:.1f}', x_dim_inner - 35, int(cy))
-		dc.SelectObject(wx.NullBitmap)
-		fd, path = tempfile.mkstemp(suffix='.png', prefix='cross_section_')
-		os.close(fd)
-		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
-		return path
-	except Exception:
-		return ''
-
-def create_container_seating_diagram_png(span: float, front: float, rear: float, x1: float, x2: float, coupler_offset: float=0, width=700, height=280) -> str:
-	"""コンテナ4点座配置図を生成しPNGパスを返す (mm単位入力)"""
-	try:
-		bmp = wx.Bitmap(width, height)
-		dc = wx.MemoryDC(bmp)
-		dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
-		dc.Clear()
-		margin_x = 60
-		beam_y = 140
-		# スケール計算 (カプラ位置を含めた全長)
-		total_length = coupler_offset + span
-		scale = (width - 2*margin_x) / float(total_length)
-		def to_x(pos_mm): return int(margin_x + pos_mm * scale)
-		# カプラ位置 (赤マーカー)
-		dc.SetBrush(wx.Brush(wx.Colour(255,0,0)))
-		dc.SetPen(wx.Pen(wx.Colour(200,0,0),2))
-		dc.DrawCircle(to_x(0), beam_y, 8)
-		dc.SetTextForeground(wx.Colour(200,0,0))
-		dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-		dc.DrawText('カプラ', to_x(0)-20, beam_y-25)
-		# 縦桁 (梁)
-		dc.SetPen(wx.Pen(wx.Colour(0,0,0),3))
-		dc.DrawLine(to_x(coupler_offset), beam_y, to_x(coupler_offset+span), beam_y)
-		# 4点座 (オレンジ丸: 前側2点, 後側2点)
-		pad_front1 = coupler_offset + front  # C + a
-		pad_front2 = coupler_offset + front  # C + a
-		pad_rear1 = coupler_offset + (span - rear)  # C + L - b
-		pad_rear2 = coupler_offset + (span - rear)  # C + L - b
-		dc.SetBrush(wx.Brush(wx.Colour(255,140,0)))
-		dc.SetPen(wx.Pen(wx.Colour(255,100,0),2))
-		for pos in [pad_front1, pad_rear1]:
-			dc.DrawCircle(to_x(pos), beam_y, 12)
-		# ラベル
-		dc.SetTextForeground(wx.Colour(255,100,0))
-		dc.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-		dc.DrawText('前座', to_x(pad_front1)-18, beam_y-32)
-		dc.DrawText('後座', to_x(pad_rear1)-18, beam_y-32)
-		# 支点 (青三角: X1, X2)
-		dc.SetBrush(wx.Brush(wx.Colour(0,100,200)))
-		dc.SetPen(wx.Pen(wx.Colour(0,80,180),2))
-		for xpos in [coupler_offset+x1, coupler_offset+x2]:
-			sx = to_x(xpos)
-			pts = [wx.Point(sx-10, beam_y+10), wx.Point(sx, beam_y+26), wx.Point(sx+10, beam_y+10)]
-			dc.DrawPolygon(pts)
-		dc.SetTextForeground(wx.Colour(0,80,180))
-		dc.DrawText('X1', to_x(coupler_offset+x1)-8, beam_y+32)
-		dc.DrawText('X2', to_x(coupler_offset+x2)-8, beam_y+32)
-		# 寸法線 (グレー点線)
-		dc.SetPen(wx.Pen(wx.Colour(120,120,120),1,wx.PENSTYLE_SHORT_DASH))
-		dim_y = beam_y + 60
-		for pos in [0, coupler_offset, coupler_offset+front, coupler_offset+x1, coupler_offset+x2, coupler_offset+span-rear, coupler_offset+span]:
-			dc.DrawLine(to_x(pos), beam_y+4, to_x(pos), dim_y+8)
-		# 寸法値
-		dc.SetTextForeground(wx.Colour(0,0,0))
-		dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-		dc.DrawText(f'C={coupler_offset:.0f}', to_x(coupler_offset/2)-20, dim_y-8)
-		dc.DrawText(f'a={front:.0f}', to_x(coupler_offset+front/2)-20, dim_y+16)
-		dc.DrawText(f'X1={x1:.0f}', to_x(coupler_offset+x1)-20, dim_y+24)
-		dc.DrawText(f'X2={x2:.0f}', to_x(coupler_offset+x2)-20, dim_y+24)
-		dc.DrawText(f'b={rear:.0f}', to_x(coupler_offset+(span+span-rear)/2)-20, dim_y+16)
-		dc.DrawText(f'L={span:.0f}', to_x(coupler_offset+span/2)-20, beam_y-60)
-		# 凡例
-		dc.SetFont(wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-		dc.SetTextForeground(wx.Colour(0,0,0))
-		dc.DrawText('● 赤:カプラ(連結部)  ● 橙:コンテナ座(4点)  ▲ 青:サスペンションハンガー(支点)', 20, 20)
-		dc.SelectObject(wx.NullBitmap)
-		fd, path = tempfile.mkstemp(suffix='.png', prefix='container_seating_')
-		os.close(fd)
-		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
-		return path
-	except Exception:
-		return ''
-
-def create_frame_diagram_png(data: dict, width=900, height=360) -> str:
-	"""車枠強度図を一時PNGファイルとして生成しパスを返す"""
-	if not data:
-		return ''
-	bmp = wx.Bitmap(width, height)
-	dc = wx.MemoryDC(bmp)
-	dc.SetBackground(wx.Brush(wx.Colour(255,255,255)))
-	dc.Clear()
-	margin = 50
-	dists = data['dists']
-	shear_vals = data['shear_list']
-	moment_vals = data['moment_list']
-	positions = [0]
-	for d in dists:
-		positions.append(positions[-1] + d)
-	L = positions[-1]
-	if L <= 0:
-		dc.SelectObject(wx.NullBitmap)
-		return ''
-	x_scale = (width - 2*margin) / float(L)
-	max_shear = max(abs(v) for v in shear_vals) if shear_vals else 1
-	max_moment = max(abs(v) for v in moment_vals) if moment_vals else 1
-	shear_top = margin
-	shear_bottom = int(margin + (height - 2*margin) * 0.60)
-	moment_top = shear_bottom + 18
-	moment_bottom = height - margin
-	dc.SetPen(wx.Pen(wx.Colour(0,0,0),1))
-	dc.DrawLine(margin, shear_bottom, width-margin, shear_bottom)
-	dc.DrawLine(margin, moment_bottom, width-margin, moment_bottom)
-	dc.SetFont(wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-	dc.DrawText('せん断力 (kg)', margin, shear_top-22)
-	dc.DrawText('曲げモーメント (kg·cm)', margin, moment_top-18)
-	grid_pen = wx.Pen(wx.Colour(225,225,225),1,style=wx.PENSTYLE_SHORT_DASH)
-	dc.SetPen(grid_pen)
-	for g in range(1,5):
-		gy = int(shear_top + (shear_bottom - shear_top) * g / 5.0)
-		dc.DrawLine(margin, gy, width-margin, gy)
-	dc.SetPen(wx.Pen(wx.Colour(220,0,0),2))
-	prev_x = margin
-	prev_y = int(shear_bottom - (shear_vals[0]/max_shear) * (shear_bottom - shear_top))
-	dc.DrawCircle(prev_x, prev_y, 2)
-	for i, val in enumerate(shear_vals):
-		x = int(margin + positions[i] * x_scale)
-		y = int(shear_bottom - (val/max_shear) * (shear_bottom - shear_top))
-		if i > 0:
-			dc.DrawLine(prev_x, prev_y, x, prev_y)
-			dc.DrawLine(x, prev_y, x, y)
-		dc.DrawCircle(x, y, 2)
-		prev_x, prev_y = x, y
-	dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-	for p in positions:
-		x = int(margin + p * x_scale)
-		dc.DrawLine(x, shear_bottom, x, shear_bottom+4)
-		dc.DrawText(str(int(p)), x-10, shear_bottom+6)
-	dc.SetPen(wx.Pen(wx.Colour(0,80,200),2))
-	for i, mv in enumerate(moment_vals):
-		x = int(margin + positions[i+1] * x_scale)
-		y = int(moment_bottom - (mv/max_moment) * (moment_bottom - moment_top))
-		dc.DrawLine(x, moment_bottom, x, y)
-		dc.DrawCircle(x, y, 2)
-	for p in positions:
-		x = int(margin + p * x_scale)
-		dc.DrawLine(x, moment_bottom, x, moment_bottom+4)
-		dc.DrawText(str(int(p)), x-10, moment_bottom+6)
-	dc.SetTextForeground(wx.Colour(0,0,0))
-	dc.DrawText(f"Mmax={data['Mmax']:.1f}", width-margin-140, moment_top)
-	dc.DrawText(f"Smax={max_shear:.1f}", width-margin-140, shear_top)
-	dc.SetPen(wx.Pen(wx.Colour(185,185,185),1,style=wx.PENSTYLE_SHORT_DASH))
-	dc.DrawRectangle(margin, shear_top, width-2*margin, shear_bottom - shear_top)
-	dc.DrawRectangle(margin, moment_top, width-2*margin, moment_bottom - moment_top)
-	dc.DrawText('赤:せん断力ステップ / 青:区間終端曲げモーメント', margin, height-24)
-	dc.SelectObject(wx.NullBitmap)
-	fd, path = tempfile.mkstemp(suffix='.png', prefix='frame_diagram_')
-	os.close(fd)
-	bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
-	return path
 
 def show_result(title: str, text: str):
 	"""結果テキストを共有ウィンドウに表示する。ウィンドウが無ければ生成。"""
@@ -361,6 +66,144 @@ def _open_saved_pdf(path: str):
 		os.startfile(path)
 	except Exception:
 		pass
+
+
+class ResultWindow(wx.Frame):
+	"""計算結果を共有表示するシンプルなウィンドウ。"""
+
+	def __init__(self):
+		super().__init__(None, title='計算結果', size=wx.Size(540, 420))
+		panel = wx.Panel(self)
+		vbox = wx.BoxSizer(wx.VERTICAL)
+		self.title_label = wx.StaticText(panel, label='計算結果')
+		self.title_label.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+		self.text_ctrl = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2)
+		self.text_ctrl.SetFont(wx.Font(9, wx.FONTFAMILY_MODERN, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+		vbox.Add(self.title_label, 0, wx.ALL, 6)
+		vbox.Add(self.text_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+		panel.SetSizer(vbox)
+		self.Bind(wx.EVT_CLOSE, self._on_close)
+
+	def set_content(self, title: str, text: str) -> None:
+		self.title_label.SetLabel(title)
+		self.SetTitle(title)
+		self.text_ctrl.SetValue(text)
+
+	def _on_close(self, evt: wx.CloseEvent) -> None:
+		# 閉じるではなく非表示にする
+		self.Hide()
+		evt.Veto()
+
+
+def create_container_seating_diagram_png(span: float, front: float, rear: float, ax1: float, ax2: float, coupler_off: float) -> str:
+	"""コンテナ座配置の簡易図をPNGで返す。"""
+	try:
+		w, h = 720, 240
+		bmp = wx.Bitmap(w, h)
+		dc = wx.MemoryDC(bmp)
+		dc.SetBackground(wx.Brush(wx.Colour(255, 255, 255)))
+		dc.Clear()
+
+		margin = 50
+		total = max(span, ax1, ax2, coupler_off + span, front + rear + span)
+		if total <= 0:
+			total = 100.0
+		scale = (w - 2 * margin) / total
+		base_y = h // 2 + 30
+		to_x = lambda mm: int(margin + mm * scale)
+
+		# ベースラインとコンテナ
+		dc.SetPen(wx.Pen(wx.Colour(60, 60, 60), 2))
+		dc.DrawLine(to_x(0), base_y, to_x(total), base_y)
+		cont_len = max(span, 0.0)
+		dc.SetBrush(wx.Brush(wx.Colour(200, 230, 255)))
+		dc.SetPen(wx.Pen(wx.Colour(80, 120, 180), 2))
+		dc.DrawRectangle(to_x(0), base_y - 70, to_x(cont_len) - to_x(0), 60)
+		dc.DrawText('コンテナ', to_x(cont_len / 2) - 20, base_y - 90)
+
+		# 連結部
+		dc.SetBrush(wx.Brush(wx.Colour(255, 120, 120)))
+		dc.SetPen(wx.Pen(wx.Colour(200, 60, 60), 2))
+		cx = to_x(coupler_off)
+		dc.DrawCircle(cx, base_y, 7)
+		dc.DrawText('連結中心', cx - 22, base_y + 12)
+
+		# 支点位置（前・後）
+		dc.SetBrush(wx.Brush(wx.Colour(120, 200, 120)))
+		dc.SetPen(wx.Pen(wx.Colour(60, 160, 60), 2))
+		fx = to_x(max(front, 0.0))
+		rrx = to_x(max(cont_len - rear, 0.0))
+		for pos, lbl in [(fx, '前支持'), (rrx, '後支持')]:
+			pts = [wx.Point(pos - 7, base_y + 14), wx.Point(pos + 7, base_y + 14), wx.Point(pos, base_y)]
+			dc.DrawPolygon(pts)
+			dc.DrawText(lbl, pos - 16, base_y + 20)
+
+		# 軸位置
+		for pos, lbl in [(ax1, '軸1'), (ax2, '軸2')]:
+			if pos <= 0:
+				continue
+			xp = to_x(pos)
+			dc.SetBrush(wx.Brush(wx.Colour(100, 150, 255)))
+			dc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 2))
+			dc.DrawRectangle(xp - 6, base_y - 6, 12, 12)
+			dc.DrawText(lbl, xp - 10, base_y + 20)
+
+		dc.SelectObject(wx.NullBitmap)
+		fd, path = tempfile.mkstemp(suffix='.png', prefix='container_seat_')
+		os.close(fd)
+		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
+		return path
+	except Exception:
+		return ''
+
+
+def create_cross_section_diagram_png(B: float, Hs: float, bb: float, hh: float, tw: float, tf: float, cross_type: str) -> str:
+	"""断面形状を簡易描画してPNGパスを返す。"""
+	try:
+		w, h = 320, 240
+		bmp = wx.Bitmap(w, h)
+		dc = wx.MemoryDC(bmp)
+		dc.SetBackground(wx.Brush(wx.Colour(255, 255, 255)))
+		dc.Clear()
+
+		margin = 40
+		max_w = max(B, bb if bb > 0 else B, 80)
+		max_h = max(Hs, hh if hh > 0 else Hs, 80)
+		scale = min((w - 2 * margin) / max_w, (h - 2 * margin) / max_h)
+		top = h - margin
+		start_x = (w - int(max_w * scale)) // 2
+
+		def px(mm: float) -> int:
+			return int(mm * scale)
+
+		# 外枠
+		dc.SetPen(wx.Pen(wx.Colour(60, 60, 60), 2))
+		dc.SetBrush(wx.TRANSPARENT_BRUSH)
+		dc.DrawRectangle(start_x, top - px(Hs), px(B), px(Hs))
+
+		if cross_type == 'hbeam':
+			# フランジ
+			dc.SetBrush(wx.Brush(wx.Colour(220, 220, 255)))
+			dc.DrawRectangle(start_x, top - px(tf), px(B), px(tf))
+			dc.DrawRectangle(start_x, top - px(Hs) , px(B), px(tf))
+			# ウェブ
+			web_w = max(tw, 1.0)
+			dc.SetBrush(wx.Brush(wx.Colour(200, 200, 255)))
+			dc.DrawRectangle(start_x + px((B - web_w) / 2), top - px(Hs - tf), px(web_w), px(Hs - 2 * tf))
+		else:
+			# 中空矩形イメージ
+			dc.SetBrush(wx.Brush(wx.Colour(230, 230, 230)))
+			inner_w = max(bb, B * 0.6)
+			inner_h = max(hh, Hs * 0.6)
+			dc.DrawRectangle(start_x + px((B - inner_w) / 2), top - px((Hs - inner_h) / 2 + inner_h), px(inner_w), px(inner_h))
+
+		dc.SelectObject(wx.NullBitmap)
+		fd, path = tempfile.mkstemp(suffix='.png', prefix='cross_section_')
+		os.close(fd)
+		bmp.SaveFile(path, wx.BITMAP_TYPE_PNG)
+		return path
+	except Exception:
+		return ''
 
 
 class SemiTrailerDiagramPanel(wx.Panel):
@@ -7666,6 +7509,28 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		hl.Add(ctrls, 0, wx.ALIGN_TOP|wx.ALL, 4)
 		v.Add(hl, 1, wx.EXPAND|wx.ALL, 6)
 
+		# 面荷重（スプリングハンガ等）
+		dist_box = wx.StaticBoxSizer(wx.StaticBox(self, label='4. 面荷重（スプリングハンガ等：区間一様荷重として入力）'), wx.VERTICAL)
+		desc_dist = wx.StaticText(self, label='ハンガ本数に応じて任意行を追加してください。合計重量を開始/終了位置間に一様分布させます。')
+		desc_dist.SetForegroundColour(wx.Colour(60, 60, 60))
+		dist_box.Add(desc_dist, 0, wx.ALL, 4)
+		self.dist_load_grid = wx.grid.Grid(self)
+		self.dist_load_grid.CreateGrid(3, 4)
+		self.dist_load_grid.SetColLabelValue(0, '名称')
+		self.dist_load_grid.SetColLabelValue(1, '重量 [kg]')
+		self.dist_load_grid.SetColLabelValue(2, '開始位置 [mm]')
+		self.dist_load_grid.SetColLabelValue(3, '終了位置 [mm]')
+		for c in range(4):
+			self.dist_load_grid.SetColSize(c, 120 if c==0 else 95)
+		dist_box.Add(self.dist_load_grid, 1, wx.EXPAND|wx.ALL, 4)
+		dist_ctrls = wx.BoxSizer(wx.HORIZONTAL)
+		btn_dist_add = wx.Button(self, label='面荷重 行追加')
+		btn_dist_remove = wx.Button(self, label='面荷重 行削除')
+		dist_ctrls.Add(btn_dist_add, 0, wx.RIGHT, 4)
+		dist_ctrls.Add(btn_dist_remove, 0)
+		dist_box.Add(dist_ctrls, 0, wx.ALIGN_LEFT|wx.ALL, 4)
+		v.Add(dist_box, 0, wx.EXPAND|wx.ALL, 6)
+
 		# 計算・PDFボタン
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		btn_calc = wx.Button(self, label='計算')
@@ -7683,6 +7548,8 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		btn_add.Bind(wx.EVT_BUTTON, lambda e: self.load_grid.AppendRows(1))
 		btn_remove.Bind(wx.EVT_BUTTON, lambda e: self._remove_selected_rows())
 		btn_import.Bind(wx.EVT_BUTTON, lambda e: self._import_from_components())
+		btn_dist_add.Bind(wx.EVT_BUTTON, lambda e: self.dist_load_grid.AppendRows(1))
+		btn_dist_remove.Bind(wx.EVT_BUTTON, lambda e: self._remove_selected_dist_rows())
 		btn_calc.Bind(wx.EVT_BUTTON, lambda e: (self.on_calc(), e.Skip()))
 		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
 
@@ -7696,6 +7563,17 @@ class VehicleFrameStrengthPanel(wx.Panel):
 			return
 		for r in sorted(rows, reverse=True):
 			self.load_grid.DeleteRows(r)
+
+	def _remove_selected_dist_rows(self):
+		rows = self.dist_load_grid.GetSelectedRows()
+		if not rows:
+			# remove last row
+			if self.dist_load_grid.GetNumberRows() > 0:
+				self.dist_load_grid.DeleteRows(self.dist_load_grid.GetNumberRows()-1)
+			return
+		for r in sorted(rows, reverse=True):
+			self.dist_load_grid.DeleteRows(r)
+
 
 	def _import_from_components(self):
 		"""重量計算パネルの部品表から荷重リストに転用"""
@@ -7858,6 +7736,25 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				if w != 0:
 					loads.append((name, w, x))
 
+				# read distributed loads (uniform over start-end)
+				dist_loads = []  # (name, weight, x1, x2)
+				for r in range(self.dist_load_grid.GetNumberRows()):
+					name = self.dist_load_grid.GetCellValue(r,0) or f'Q{r+1}'
+					try:
+						w = float(self.dist_load_grid.GetCellValue(r,1) or 0)
+					except Exception:
+						w = 0.0
+					try:
+						x1 = float(self.dist_load_grid.GetCellValue(r,2) or 0)
+					except Exception:
+						x1 = 0.0
+					try:
+						x2 = float(self.dist_load_grid.GetCellValue(r,3) or 0)
+					except Exception:
+						x2 = 0.0
+					if w != 0 and x2 > x1:
+						dist_loads.append((name, w, x1, x2))
+
 			# discretize
 			npts = 121
 			xs = [i*(L/(npts-1)) for i in range(npts)]
@@ -7866,6 +7763,19 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				for i,xx in enumerate(xs):
 					if xx >= x:
 						Vs[i] -= w*9.80665
+			# 面荷重（区間一様荷重）をせん断力へ加算
+			for name,w,x1,x2 in dist_loads:
+				length = x2 - x1
+				if length <= 0:
+					continue
+				q = (w*9.80665) / length  # N/mm 一様荷重（下向き）
+				for i,xx in enumerate(xs):
+					if xx < x1:
+						continue
+					if xx >= x2:
+						Vs[i] -= q * length
+					else:
+						Vs[i] -= q * (xx - x1)
 
 			# integrate for moment (M[0]=0)
 			Ms = [0.0]*npts
@@ -7989,7 +7899,8 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				'section_str': section_str,
 				'material': mat_name,
 				'section_results': section_results,
-				'is_multi': is_multi
+				'is_multi': is_multi,
+				'dist_loads': dist_loads
 			}
 
 			# display
@@ -8235,13 +8146,20 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		y -= 20
 		
 		c.setFont(font, 10)
-		# 分布荷重テーブル
-		load_data = [['', '分布荷重名称', '重量\nkg', '距離\nmm', '分布荷重\nkg/mm']]
+		# 分布荷重テーブル（点荷重＋面荷重）
+		load_data = [['', '荷重名称', '重量\nkg', '位置/開始\nmm', '終了\nmm', '分布荷重\nkg/mm']]
+		# 点荷重
 		for idx, (name, weight, pos) in enumerate(self.last['loads'], 1):
 			dist_load = weight / self.last['L'] if self.last['L'] > 0 else 0
-			load_data.append([f'W{idx}', str(name), f'{weight:.0f}', f'{pos:.0f}', f'{dist_load:.6f}'])
-		
-		load_table = Table(load_data, colWidths=[30, 120, 60, 60, 80])
+			load_data.append([f'P{idx}', str(name), f'{weight:.0f}', f'{pos:.0f}', '', f'{dist_load:.6f}'])
+		# 面荷重
+		dist_loads = self.last.get('dist_loads', []) or []
+		for idx, (name, weight, x1, x2) in enumerate(dist_loads, 1):
+			length = x2 - x1
+			dist_val = (weight / length) if length > 0 else 0
+			load_data.append([f'Q{idx}', str(name), f'{weight:.0f}', f'{x1:.0f}', f'{x2:.0f}', f'{dist_val:.6f}'])
+
+		load_table = Table(load_data, colWidths=[30, 120, 60, 70, 70, 80])
 		load_table.setStyle(TableStyle([
 			('FONT', (0, 0), (-1, -1), font, 9),
 			('FONT', (0, 0), (-1, 0), font + '-Bold', 9),
@@ -8635,7 +8553,7 @@ class VehicleFrameStrengthPanel(wx.Panel):
 
 class MainFrame(wx.Frame):
 	def __init__(self):
-		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1200,1250))
+		super().__init__(None,title='車両関連 統合計算ツール',size=wx.Size(1200,900))
 		
 		# アイコン設定
 		icon_path = 'app_icon.ico'
@@ -8645,7 +8563,9 @@ class MainFrame(wx.Frame):
 			except Exception as e:
 				print(f"アイコン読み込みエラー: {e}")
 		
-		self.nb=wx.Notebook(self, style=wx.NB_MULTILINE)
+		self.scroll = wx.ScrolledWindow(self, style=wx.VSCROLL|wx.HSCROLL)
+		self.scroll.SetScrollRate(20, 20)
+		self.nb=wx.Notebook(self.scroll, style=wx.NB_MULTILINE)
 		self.panels = [
 			('重量計算', WeightCalcPanel(self.nb)),
 			('ハンガー荷重分配', HangerLoadDistributionPanel(self.nb)),
@@ -8667,6 +8587,12 @@ class MainFrame(wx.Frame):
 		self.weight_panel = self.panels[0][1] if self.panels else None
 		for title, panel in self.panels:
 			self.nb.AddPage(panel, title)
+		sizer = wx.BoxSizer(wx.VERTICAL)
+		sizer.Add(self.nb, 1, wx.EXPAND)
+		self.scroll.SetSizer(sizer)
+		main_sizer = wx.BoxSizer(wx.VERTICAL)
+		main_sizer.Add(self.scroll, 1, wx.EXPAND)
+		self.SetSizer(main_sizer)
 		self.current_project_path = None
 		# 最近使ったファイルの履歴
 		self.recent_files = self._load_recent_files()
