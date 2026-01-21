@@ -233,7 +233,14 @@ class WeightCalculationSheet:
     def _draw_empty_table(self, c, x: float, y_top: float, width: float, font: str) -> float:
         col_w = [34, 130, 48, 56, 78, 56, 78]
         row_h_header = 30
-        row_h = 16
+        # 部品数に応じて行の高さを動的に調整（最小9、最大16）
+        num_rows = len(self.components)
+        available_height = y_top - 200  # ページ下部に200ptの余白を確保
+        if available_height < row_h_header + (num_rows + 1) * 9:
+            # 最小の行高さ(9pt)でも収まらない場合は、余白を減らす
+            available_height = y_top - 100
+        calculated_row_h = (available_height - row_h_header) / (num_rows + 1) if num_rows > 0 else 16  # +1は合計行
+        row_h = max(9, min(16, calculated_row_h))
 
         headers = [
             "No.",
@@ -278,8 +285,11 @@ class WeightCalculationSheet:
                 c.drawCentredString(cx + col_w[i] / 2, line_y - li * 9, t)
             cx += col_w[i]
 
-        c.setFont(font, 8)
-        row_y = y_top - row_h_header - 12
+        # フォントサイズも行の高さに応じて調整
+        font_size = max(6, min(8, row_h - 4))
+        c.setFont(font, font_size)
+        # テキストのy位置をセルの中央に配置（下から数えるので row_h/2 - font_size/3）
+        row_y = y_top - row_h_header - row_h / 2 - font_size / 3
         for comp in rows:
             cells = [
                 comp.no,

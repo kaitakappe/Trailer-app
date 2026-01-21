@@ -26,11 +26,32 @@ def _derive_width_cm_from_size(size_str: str):
         return width_in * 2.54
     return None
 
-def compute_weight_metrics(vw, ml, fa, ra, tire_count, tire_load_per_tire, contact_width_cm,
-                           front_tire_size: str = None, rear_tire_size: str = None):
+from typing import Optional
+
+
+def compute_weight_metrics(
+    vw,
+    ml,
+    fa,
+    ra,
+    tire_count,
+    tire_load_per_tire,
+    contact_width_cm,
+    front_tire_size: str = None,
+    rear_tire_size: str = None,
+    ra1: Optional[float] = None,
+    ra2: Optional[float] = None,
+    rear_tire_count_per_axle: Optional[int] = None,
+):
     """重量計算: 入力値 + タイヤサイズから各指標を算出し辞書で返す。
     contact_width_cm が 0 以下の場合、サイズから派生した幅を採用。
-    タイヤサイズ形式: 例 '225/80R17'. パースできない場合はサイズ由来幅は使用しない。"""
+    タイヤサイズ形式: 例 '225/80R17'. パースできない場合はサイズ由来幅は使用しない。
+    
+    後軸2軸の場合：
+    - ra1: 後軸1の荷重
+    - ra2: 後軸2の荷重
+    - rear_tire_count_per_axle: 後軸1軸あたりのタイヤ本数（通常4本=2本/軸 × 2軸）
+    """
     total_weight = vw + ml
     if tire_count <= 0 or tire_load_per_tire <= 0:
         raise ValueError("タイヤ本数/荷重は正の数値")
@@ -47,7 +68,9 @@ def compute_weight_metrics(vw, ml, fa, ra, tire_count, tire_load_per_tire, conta
     rear_strength_ratio = ra / (tire_count / 2 * tire_load_per_tire)
     front_contact_pressure = fa / ((front_width_cm / 100) * (tire_count / 2))
     rear_contact_pressure = ra / ((rear_width_cm / 100) * (tire_count / 2))
-    return {
+    
+    # 後軸2軸の場合の接地圧計算
+    result = {
         "total_weight": total_weight,
         "front_strength_ratio": front_strength_ratio,
         "rear_strength_ratio": rear_strength_ratio,
@@ -56,3 +79,12 @@ def compute_weight_metrics(vw, ml, fa, ra, tire_count, tire_load_per_tire, conta
         "front_contact_width_cm_used": front_width_cm,
         "rear_contact_width_cm_used": rear_width_cm,
     }
+    
+    # 後軸が2軸の場合、各軸の接地圧も計算
+    if ra1 is not None and ra2 is not None and rear_tire_count_per_axle is not None and rear_tire_count_per_axle > 0:
+        rear_contact_pressure_1 = ra1 / ((rear_width_cm / 100) * rear_tire_count_per_axle)
+        rear_contact_pressure_2 = ra2 / ((rear_width_cm / 100) * rear_tire_count_per_axle)
+        result["rear_contact_pressure_1"] = rear_contact_pressure_1
+        result["rear_contact_pressure_2"] = rear_contact_pressure_2
+    
+    return result

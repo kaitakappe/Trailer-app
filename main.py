@@ -443,6 +443,7 @@ class WeightCalcPanel(wx.Panel):
 		# セミトレーラー重量計算書（添付様式）用
 		self.wb = self._add(v, 'W.B.(ホイールベース) [mm]（軸間距離）:', '', '7850')
 		self.payload_max = self._add(v, '最大積載量P [kg]（重量計算書用）:', '', '28000')
+		
 		self.os_a = self._add(v, 'O.S.用 A [mm]（図面のA。式ではA/2を使用）:', '', '11450')
 		self.os_c = self._add(v, 'O.S.用 C [mm]（式では −C）:', '', '1730')
 		self.os_d = self._add(v, 'O.S.用 D [mm]（式では −D）:', '', '1360')
@@ -854,11 +855,13 @@ class WeightCalcPanel(wx.Panel):
 				H = sheet.cg_h_mm()
 				Lr = float(int((L + 2.5) / 5.0) * 5) if L >= 0 else -float(int(((-L) + 2.5) / 5.0) * 5)
 				Hr = float(int((H + 2.5) / 5.0) * 5) if H >= 0 else -float(int(((-H) + 2.5) / 5.0) * 5)
+				
 				axle_lines = [
 					'',
 					'◆ 前後軸重量分布（重量計算書ベース）◆',
 					f'空車: 前軸 Wf={wf0:.0f}kg  後軸 Wr={wr0:.0f}kg',
 					f'積車: 前軸 WF={wf_loaded:.0f}kg  後軸 WR={wr_loaded:.0f}kg',
+					f'  → 車両総重量 G.V.W. = {wf_loaded+wr_loaded:.0f}kg',
 					f'Pf = P×O.S./W.B. = {pf:.0f}kg  (P={payload_max:.0f}kg, O.S.={osv:.0f}mm, W.B.={wb:.0f}mm)',
 					f'重心位置: L={L:.2f}mm ({Lr:.0f}mm)  H={H:.2f}mm ({Hr:.0f}mm)',
 				]
@@ -875,6 +878,7 @@ class WeightCalcPanel(wx.Panel):
 			if derived_fa_ra is None:
 				raise ValueError('空車時の前後軸重量を導出できません。部品表とW.B.を入力してください。')
 			fa, ra = derived_fa_ra
+			
 			data = compute_weight_metrics(
 				vw,
 				ml,
@@ -896,19 +900,31 @@ class WeightCalcPanel(wx.Panel):
 
 		lines: list[str] = []
 		if data is not None:
-			lines.extend(
-				[
-					'◆ 重量計算結果 ◆',
-					f"総重量: {data['total_weight']:.1f} kg",
-					f"前軸タイヤ強度比: {data['front_strength_ratio']:.2f}",
-					f"後軸タイヤ強度比: {data['rear_strength_ratio']:.2f}",
-					f"前軸接地圧: {data['front_contact_pressure']:.1f} kg/cm (幅 {data['front_contact_width_cm_used']:.1f} cm)",
-					f"後軸接地圧: {data['rear_contact_pressure']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)",
-				]
-			)
+			result_lines = [
+				'◆ 重量計算結果 ◆',
+				f"総重量: {data['total_weight']:.1f} kg",
+				f"前軸タイヤ強度比: {data['front_strength_ratio']:.2f}",
+				f"後軸タイヤ強度比: {data['rear_strength_ratio']:.2f}",
+				f"前軸接地圧（ヒッチ）: {data['front_contact_pressure']:.1f} kg/cm (幅 {data['front_contact_width_cm_used']:.1f} cm)",
+			]
+			
+			# 後軸が2軸の場合、各軸の接地圧を表示
+			if 'rear_contact_pressure_1' in data and 'rear_contact_pressure_2' in data:
+				result_lines.extend([
+					f"後軸1接地圧: {data['rear_contact_pressure_1']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)",
+					f"後軸2接地圧: {data['rear_contact_pressure_2']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)",
+				])
+			else:
+				result_lines.append(f"後軸接地圧: {data['rear_contact_pressure']:.1f} kg/cm (幅 {data['rear_contact_width_cm_used']:.1f} cm)")
+			
+			lines.extend(result_lines)
 
 		lines.extend(axle_lines)
-		# GUI上の結果表示は行わず、PDFに結果を載せる運用を想定
+		
+		# GUI上に計算結果を表示
+		if lines:
+			show_result('重量計算結果', '\n'.join(lines))
+		
 		self.last_data = data if data is not None else {'axle_distribution_only': True}
 
 	def on_export_pdf(self, _):
@@ -1000,6 +1016,7 @@ class WeightCalcPanel(wx.Panel):
 			'ra': ra_s,
 			'wb': self.wb.GetValue(),
 			'payload_max': self.payload_max.GetValue(),
+
 			'os_a': self.os_a.GetValue(),
 			'os_c': self.os_c.GetValue(),
 			'os_d': self.os_d.GetValue(),
@@ -1143,17 +1160,21 @@ class WeightCalcPanel(wx.Panel):
 		if 'ts_front' in state: self.ts_front.SetValue(str(state['ts_front']))
 		if 'ts_rear' in state: self.ts_rear.SetValue(str(state['ts_rear']))
 		if 'last_data' in state: self.last_data = state['last_data']
+		# 軸数によって後軸2入力の有効/無効を更新
+
 
 
 class HangerLoadDistributionPanel(wx.Panel):
 	"""後軸にかかる荷重をリーフスプリングハンガーに分配する計算"""
+	
+	last_calc_data: Optional[dict]
 	
 	def __init__(self, parent):
 		super().__init__(parent)
 		v = wx.BoxSizer(wx.VERTICAL)
 		
 		# タイトル
-		title = wx.StaticText(self, label='リーフスプリング ハンガー荷重分配計算')
+		title = wx.StaticText(self, label='リーフスプリング ハンガー及び車軸荷重分配計算')
 		f = title.GetFont(); f.PointSize += 2; f = f.Bold(); title.SetFont(f)
 		v.Add(title, 0, wx.ALL, 6)
 		
@@ -1179,7 +1200,8 @@ class HangerLoadDistributionPanel(wx.Panel):
 			grid_input.Add(hint_text, 0, wx.ALIGN_CENTER_VERTICAL)
 			return ctrl
 		
-		self.hitch_weight = add_input('後軸荷重 [kg]', '総荷重', '2800')
+		self.rear_axle_empty = add_input('後軸荷重(空車時) [kg]', '空車時の後軸重量', '1800')
+		self.rear_axle_loaded = add_input('後軸荷重(積車時) [kg]', '積車時の後軸重量', '2800')
 		self.hanger_count = add_input('ハンガー本数', '例: 2本, 4本など', '2')
 		grid_input.AddGrowableCol(1, 1); grid_input.AddGrowableCol(3, 1)
 		
@@ -1213,19 +1235,25 @@ class HangerLoadDistributionPanel(wx.Panel):
 		btn_calc = wx.Button(self, label='計算')
 		btn_calc.Bind(wx.EVT_BUTTON, self.on_calc)
 		h_btn.Add(btn_calc, 0, wx.RIGHT, 6)
+		btn_pdf = wx.Button(self, label='PDF出力')
+		btn_pdf.Bind(wx.EVT_BUTTON, self.on_export_pdf)
+		h_btn.Add(btn_pdf, 0, wx.RIGHT, 6)
+		self.btn_pdf = btn_pdf
 		v.Add(h_btn, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
 		
 		# 結果テーブル
 		v.Add(wx.StaticText(self, label='各ハンガーにかかる荷重'), 0, wx.LEFT|wx.RIGHT|wx.TOP, 12)
 		
 		self.result_grid = wx.grid.Grid(self)
-		self.result_grid.CreateGrid(6, 3)
+		self.result_grid.CreateGrid(6, 4)
 		self.result_grid.SetColLabelValue(0, 'ハンガー\n番号')
 		self.result_grid.SetColLabelValue(1, '距離\n(mm)')
-		self.result_grid.SetColLabelValue(2, '荷重\n(kg)')
+		self.result_grid.SetColLabelValue(2, '空車時荷重\n(kg)')
+		self.result_grid.SetColLabelValue(3, '積車時荷重\n(kg)')
 		self.result_grid.SetColSize(0, 80)
 		self.result_grid.SetColSize(1, 100)
-		self.result_grid.SetColSize(2, 100)
+		self.result_grid.SetColSize(2, 110)
+		self.result_grid.SetColSize(3, 110)
 		self.result_grid.SetColLabelSize(40)
 		self.result_grid.SetMinSize(wx.Size(-1, 180))  # 最小高さを設定
 		
@@ -1233,9 +1261,11 @@ class HangerLoadDistributionPanel(wx.Panel):
 			self.result_grid.SetReadOnly(row, 0, True)
 			self.result_grid.SetReadOnly(row, 1, True)
 			self.result_grid.SetReadOnly(row, 2, True)
+			self.result_grid.SetReadOnly(row, 3, True)
 			self.result_grid.SetCellBackgroundColour(row, 0, wx.Colour(240, 240, 240))
 			self.result_grid.SetCellBackgroundColour(row, 1, wx.Colour(240, 240, 240))
 			self.result_grid.SetCellBackgroundColour(row, 2, wx.Colour(240, 240, 240))
+			self.result_grid.SetCellBackgroundColour(row, 3, wx.Colour(240, 240, 240))
 		
 		v.Add(self.result_grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
 		
@@ -1244,16 +1274,20 @@ class HangerLoadDistributionPanel(wx.Panel):
 		self.result_text.SetMinSize(wx.Size(-1, 180))  # 最小高さを設定
 		v.Add(self.result_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
 		
+		# 計算結果を保存する変数
+		self.last_calc_data = None
+		
 		self.SetSizer(v)
 	
 	def on_calc(self, event):
 		"""ハンガー荷重を計算"""
 		try:
 			# 入力値を取得
-			hitch_weight = float(self.hitch_weight.GetValue() or 0)
+			rear_axle_empty = float(self.rear_axle_empty.GetValue() or 0)
+			rear_axle_loaded = float(self.rear_axle_loaded.GetValue() or 0)
 			hanger_count = int(float(self.hanger_count.GetValue() or 0))
 			
-			if hitch_weight <= 0 or hanger_count <= 0:
+			if rear_axle_empty <= 0 or rear_axle_loaded <= 0 or hanger_count <= 0:
 				wx.MessageBox('有効な入力をしてください。', '入力エラー', wx.OK | wx.ICON_ERROR)
 				return
 			
@@ -1274,37 +1308,350 @@ class HangerLoadDistributionPanel(wx.Panel):
 			# 仮定：ハンガーはすべて同じ構造、支点はヒッチカプラー（0mm）と仮定
 			# 簡易計算：各ハンガーへの荷重は距離に反比例
 			total_moment = sum(distances)
-			loads = [hitch_weight * d / total_moment for d in distances]
+			loads_empty = [rear_axle_empty * d / total_moment for d in distances]
+			loads_loaded = [rear_axle_loaded * d / total_moment for d in distances]
 			
 			# 結果グリッドに表示
 			for row in range(hanger_count):
 				self.result_grid.SetCellValue(row, 0, f'H{row+1}')
 				self.result_grid.SetCellValue(row, 1, f'{distances[row]:.0f}')
-				self.result_grid.SetCellValue(row, 2, f'{loads[row]:.1f}')
+				self.result_grid.SetCellValue(row, 2, f'{loads_empty[row]:.1f}')
+				self.result_grid.SetCellValue(row, 3, f'{loads_loaded[row]:.1f}')
+			
+			# 空いている行をクリア
+			for row in range(hanger_count, 6):
+				self.result_grid.SetCellValue(row, 0, '')
+				self.result_grid.SetCellValue(row, 1, '')
+				self.result_grid.SetCellValue(row, 2, '')
+				self.result_grid.SetCellValue(row, 3, '')
 			
 			# 結果テキストに表示
 			lines = [
 				'◆ ハンガー荷重分配計算 ◆',
 				'',
-				f'後軸にかかる重量: {hitch_weight:.1f} kg',
+				f'空車時 後軸重量: {rear_axle_empty:.1f} kg',
+				f'積車時 後軸重量: {rear_axle_loaded:.1f} kg',
 				f'ハンガー本数: {hanger_count} 本',
 				'',
 				'【各ハンガーの荷重】',
 			]
-			total_load = 0
-			for row, (dist, load) in enumerate(zip(distances, loads)):
-				lines.append(f'  H{row+1}: 距離 {dist:.0f} mm → 荷重 {load:.1f} kg')
-				total_load += load
+			total_load_empty = 0
+			total_load_loaded = 0
+			for row, (dist, load_e, load_l) in enumerate(zip(distances, loads_empty, loads_loaded)):
+				lines.append(f'  H{row+1}: 距離 {dist:.0f} mm → 空車時 {load_e:.1f} kg / 積車時 {load_l:.1f} kg')
+				total_load_empty += load_e
+				total_load_loaded += load_l
 			
 			lines.extend([
 				'',
-				f'合計: {total_load:.1f} kg',
+				f'各ハンガー荷重の合計:',
+				f'  空車時: {total_load_empty:.1f} kg',
+				f'  積車時: {total_load_loaded:.1f} kg',
+				'',
+				'【ハンガーペア間の軸荷重（モーメント平衡計算）】',
+			])
+			
+			# ハンガー同士の中点での軸荷重を計算
+			# モーメント平衡を使用：隣接するハンガーペア間で前部・後部の軸荷重を計算
+			total_axle_load_empty = 0
+			total_axle_load_loaded = 0
+			
+			for i in range(len(distances) - 1):
+				# 隣接する2つのハンガー間のペア
+				dist_i = distances[i]
+				dist_i1 = distances[i + 1]
+				span = dist_i1 - dist_i
+				
+				if span <= 0:
+					continue
+				
+				# このハンガーペア間に作用する後軸重量の一部を算出
+				# 全体の後軸重量をハンガーペア間に分配
+				# ハンガーペア間のスパンに基づいて比例配分
+				hanger_pair_load_empty = rear_axle_empty * (span / sum(distances[j+1] - distances[j] for j in range(len(distances) - 1))) if len(distances) > 1 else rear_axle_empty
+				hanger_pair_load_loaded = rear_axle_loaded * (span / sum(distances[j+1] - distances[j] for j in range(len(distances) - 1))) if len(distances) > 1 else rear_axle_loaded
+				
+				# モーメント平衡：支点を中点とした時の前部・後部荷重
+				midpoint = (dist_i + dist_i1) / 2.0
+				dist_to_i = midpoint - dist_i  # 中点からハンガーiまでの距離
+				dist_to_i1 = dist_i1 - midpoint  # 中点からハンガーi+1までの距離
+				
+				# モーメント平衡式：R1 × dist_to_i = R2 × dist_to_i1
+				# R1 + R2 = hanger_pair_load
+				axle_load_1_empty = hanger_pair_load_empty * dist_to_i1 / (dist_to_i + dist_to_i1)
+				axle_load_2_empty = hanger_pair_load_empty * dist_to_i / (dist_to_i + dist_to_i1)
+				axle_load_1_loaded = hanger_pair_load_loaded * dist_to_i1 / (dist_to_i + dist_to_i1)
+				axle_load_2_loaded = hanger_pair_load_loaded * dist_to_i / (dist_to_i + dist_to_i1)
+				
+				lines.append(f'  軸{i+1} (H{i+1}～H{i+2}の中点):')
+				lines.append(f'    空車時: {axle_load_1_empty:.1f} kg + {axle_load_2_empty:.1f} kg = {axle_load_1_empty + axle_load_2_empty:.1f} kg')
+				lines.append(f'    積車時: {axle_load_1_loaded:.1f} kg + {axle_load_2_loaded:.1f} kg = {axle_load_1_loaded + axle_load_2_loaded:.1f} kg')
+				total_axle_load_empty += axle_load_1_empty + axle_load_2_empty
+				total_axle_load_loaded += axle_load_1_loaded + axle_load_2_loaded
+			
+			lines.extend([
+				'',
+				f'合計:',
+				f'  空車時: {total_axle_load_empty:.1f} kg',
+				f'  積車時: {total_axle_load_loaded:.1f} kg',
 			])
 			
 			self.result_text.SetValue('\n'.join(lines))
+			if hasattr(self, 'btn_pdf'):
+				self.btn_pdf.Enable(True)
+			
+			# 計算結果を保存
+			self.last_calc_data = {
+				'rear_axle_empty': rear_axle_empty,
+				'rear_axle_loaded': rear_axle_loaded,
+				'hanger_count': hanger_count,
+				'distances': distances,
+				'loads_empty': loads_empty,
+				'loads_loaded': loads_loaded,
+				'total_load_empty': total_load_empty,
+				'total_load_loaded': total_load_loaded,
+				'axle_loads': [],
+			}
+			
+			# 軸荷重データも保存
+			for i in range(len(distances) - 1):
+				dist_i = distances[i]
+				dist_i1 = distances[i + 1]
+				span = dist_i1 - dist_i
+				if span > 0:
+					hanger_pair_load_empty = rear_axle_empty * (span / sum(distances[j+1] - distances[j] for j in range(len(distances) - 1))) if len(distances) > 1 else rear_axle_empty
+					hanger_pair_load_loaded = rear_axle_loaded * (span / sum(distances[j+1] - distances[j] for j in range(len(distances) - 1))) if len(distances) > 1 else rear_axle_loaded
+					midpoint = (dist_i + dist_i1) / 2.0
+					dist_to_i = midpoint - dist_i
+					dist_to_i1 = dist_i1 - midpoint
+					axle_load_1_empty = hanger_pair_load_empty * dist_to_i1 / (dist_to_i + dist_to_i1)
+					axle_load_2_empty = hanger_pair_load_empty * dist_to_i / (dist_to_i + dist_to_i1)
+					axle_load_1_loaded = hanger_pair_load_loaded * dist_to_i1 / (dist_to_i + dist_to_i1)
+					axle_load_2_loaded = hanger_pair_load_loaded * dist_to_i / (dist_to_i + dist_to_i1)
+					self.last_calc_data['axle_loads'].append({
+						'index': i + 1,
+						'hanger_pair': (i + 1, i + 2),
+						'midpoint': midpoint,
+						'load_1_empty': axle_load_1_empty,
+						'load_2_empty': axle_load_2_empty,
+						'total_empty': axle_load_1_empty + axle_load_2_empty,
+						'load_1_loaded': axle_load_1_loaded,
+						'load_2_loaded': axle_load_2_loaded,
+						'total_loaded': axle_load_1_loaded + axle_load_2_loaded,
+					})
 			
 		except Exception as e:
 			wx.MessageBox(f'計算中にエラーが発生しました:\n{e}', 'エラー', wx.OK | wx.ICON_ERROR)
+	
+	def on_export_pdf(self, event):
+		"""ハンガー荷重分配計算結果をPDF出力"""
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		
+		if not self.last_calc_data:
+			wx.MessageBox('先に計算を実行してください。', '計算未実行', wx.ICON_WARNING)
+			return
+		
+		with wx.FileDialog(self, message='PDF保存', wildcard='PDF files (*.pdf)|*.pdf', 
+						   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT, 
+						   defaultFile='ハンガー荷重分配計算書.pdf') as dlg:
+			if dlg.ShowModal() != wx.ID_OK:
+				return
+			path = dlg.GetPath()
+		
+		try:
+			self._generate_hanger_load_pdf(path)
+			_open_saved_pdf(path)
+			wx.MessageBox('PDFを保存しました。', '完了', wx.ICON_INFORMATION)
+		except Exception as e:
+			wx.MessageBox(f'PDF生成に失敗しました:\n{e}', 'エラー', wx.ICON_ERROR)
+	
+	def _generate_hanger_load_pdf(self, path: str):
+		"""ハンガー荷重分配計算書PDFを生成"""
+		from reportlab.pdfgen import canvas as pdf_canvas
+		from reportlab.lib.pagesizes import A4
+		from reportlab.pdfbase import pdfmetrics
+		from reportlab.pdfbase.ttfonts import TTFont
+		
+		# 日本語フォント登録
+		font_name = "JPFont"
+		for font_path in [
+			"C:/Windows/Fonts/msgothic.ttc",
+			"C:/Windows/Fonts/meiryo.ttc",
+			"C:/Windows/Fonts/yugothic.ttf",
+		]:
+			if os.path.exists(font_path):
+				try:
+					pdfmetrics.registerFont(TTFont(font_name, font_path))
+					break
+				except:
+					pass
+		else:
+			font_name = "Helvetica"
+		
+		c = pdf_canvas.Canvas(path, pagesize=A4)
+		width, height = A4
+		
+		data = self.last_calc_data
+		if data is None:
+			return
+		
+		# タイトル
+		c.setFont(font_name, 16)
+		c.drawString(50, height - 50, 'リーフスプリング ハンガー及び車軸荷重分配計算書')
+		
+		y = height - 90
+		c.setFont(font_name, 10)
+		
+		# 基本情報
+		c.drawString(50, y, f"空車時 後軸荷重: {data['rear_axle_empty']:.1f} kg")
+		y -= 20
+		c.drawString(50, y, f"積車時 後軸荷重: {data['rear_axle_loaded']:.1f} kg")
+		y -= 20
+		c.drawString(50, y, f"ハンガー本数: {data['hanger_count']} 本")
+		y -= 30
+		
+		# 計算方法の説明
+		c.setFont(font_name, 12)
+		c.drawString(50, y, '【計算方法】')
+		y -= 20
+		c.setFont(font_name, 9)
+		
+		explanation = [
+			'1. ハンガー荷重の算出:',
+			'   各ハンガーへの荷重は、ヒッチカプラーからの距離に基づいてモーメント計算により算出します。',
+			'   計算式: ハンガーi の荷重 = 後軸荷重 × (ハンガーi の距離) / Σ(全ハンガーの距離)',
+			'',
+			'2. 軸荷重の算出:',
+			'   隣接するハンガーペア間の中点での軸荷重を、モーメント平衡により算出します。',
+			'   中点位置 = (ハンガーi の距離 + ハンガーi+1 の距離) / 2',
+			'   前部荷重 R1: R1 × (中点～ハンガーi の距離) = R2 × (中点～ハンガーi+1 の距離)',
+			'   R1 + R2 = ハンガーペア間に作用する荷重',
+		]
+		
+		for line in explanation:
+			c.drawString(50, y, line)
+			y -= 15
+		
+		y -= 10
+		
+		# ハンガー荷重の表
+		c.setFont(font_name, 12)
+		c.drawString(50, y, '【各ハンガーの荷重】')
+		y -= 20
+		c.setFont(font_name, 9)
+		
+		# 表のレイアウト設定
+		row_h = 16
+		row_count = len(data['distances']) + 1  # データ行 + 合計行
+		table_left, table_right = 50, 400
+		col_x = [50, 130, 210, 300, 400]
+		# ヘッダー行を含む枠を描く
+		table_top = y
+		table_bottom = table_top - row_h * (row_count + 1)  # +1 はヘッダー行
+
+		# 外枠
+		c.line(table_left, table_top, table_right, table_top)
+		c.line(table_left, table_bottom, table_right, table_bottom)
+		c.line(table_left, table_top, table_left, table_bottom)
+		c.line(table_right, table_top, table_right, table_bottom)
+
+		# 縦線（列）
+		for x_pos in col_x[1:-1]:
+			c.line(x_pos, table_top, x_pos, table_bottom)
+
+		# 横線（各行）
+		for idx in range(row_count + 1):  # ヘッダー + データ行
+			line_y = table_top - idx * row_h
+			c.line(table_left, line_y, table_right, line_y)
+
+		# ヘッダー文字（少し下げて配置）
+		header_y = table_top - 11
+		c.drawString(60, header_y, 'ハンガー番号')
+		c.drawString(140, header_y, '距離 (mm)')
+		c.drawString(220, header_y, '空車時 (kg)')
+		c.drawString(310, header_y, '積車時 (kg)')
+
+		# データ行
+		row_y = table_top - row_h - 11
+		for i, (dist, load_e, load_l) in enumerate(zip(data['distances'], data['loads_empty'], data['loads_loaded'])):
+			c.drawString(60, row_y, f"H{i+1}")
+			c.drawString(140, row_y, f"{dist:.0f}")
+			c.drawString(220, row_y, f"{load_e:.1f}")
+			c.drawString(310, row_y, f"{load_l:.1f}")
+			row_y -= row_h
+
+		# 合計行
+		c.drawString(60, row_y, '合計')
+		c.drawString(220, row_y, f"{data['total_load_empty']:.1f}")
+		c.drawString(310, row_y, f"{data['total_load_loaded']:.1f}")
+
+		y = table_bottom - 20
+		y -= 30
+		
+		# 軸荷重の表
+		c.setFont(font_name, 12)
+		c.drawString(50, y, '【ハンガーペア間の軸荷重】')
+		y -= 20
+		c.setFont(font_name, 9)
+		y -= 10  # ラベルと表の間に余白を追加
+		
+		if y < 200:  # スペースが少ない場合は改ページ
+			c.showPage()
+			y = height - 50
+			c.setFont(font_name, 9)
+		
+		# 表のヘッダー（軸・ハンガーペア・中点・空車・積車）
+		c.drawString(60, y, '軸')
+		c.drawString(140, y, 'ハンガーペア')
+		c.drawString(250, y, '中点(mm)')
+		c.drawString(340, y, '空車(kg)')
+		c.drawString(430, y, '積車(kg)')
+		y -= 13
+
+		# テーブル枠線（ヘッダー＋データ）
+		row_h = 16
+		row_count = len(data['axle_loads'])
+		table_left, table_right = 50, 500
+		col_x = [50, 120, 240, 320, 410, 500]
+		table_top = y + 10  # ヘッダー上端を少し近づける
+		table_bottom = table_top - row_h * row_count
+
+		# 外枠
+		c.line(table_left, table_top, table_right, table_top)
+		c.line(table_left, table_bottom, table_right, table_bottom)
+		c.line(table_left, table_top, table_left, table_bottom)
+		c.line(table_right, table_top, table_right, table_bottom)
+
+		# 縦線（列）
+		for x_pos in col_x[1:-1]:
+			c.line(x_pos, table_top, x_pos, table_bottom)
+
+		# 横線（各行）
+		for idx in range(row_count):
+			line_y = table_top - (idx + 1) * row_h
+			c.line(table_left, line_y, table_right, line_y)
+
+		# データ行
+		row_y = table_top - 11
+		for axle in data['axle_loads']:
+			c.drawString(60, row_y, f"{axle['index']}")
+			c.drawString(140, row_y, f"H{axle['hanger_pair'][0]}～H{axle['hanger_pair'][1]}")
+			c.drawString(250, row_y, f"{axle['midpoint']:.0f}")
+			c.drawString(340, row_y, f"{axle['total_empty']:.1f}")
+			c.drawString(430, row_y, f"{axle['total_loaded']:.1f}")
+			row_y -= row_h
+			if row_y < 100:
+				c.showPage()
+				y = height - 50
+				c.setFont(font_name, 9)
+				# 次ページ開始位置を再計算
+				table_top = y + 13
+				table_bottom = table_top - row_h * (row_count - (data['axle_loads'].index(axle) + 1))
+				row_y = table_top - 11
+		
+		c.save()
 	
 	def get_state(self) -> dict:
 		"""パネルの状態を保存"""
@@ -1317,7 +1664,8 @@ class HangerLoadDistributionPanel(wx.Panel):
 			hanger_data.append(row_data)
 		
 		return {
-			'hitch_weight': self.hitch_weight.GetValue(),
+			'rear_axle_empty': self.rear_axle_empty.GetValue(),
+			'rear_axle_loaded': self.rear_axle_loaded.GetValue(),
 			'hanger_count': self.hanger_count.GetValue(),
 			'hanger_data': hanger_data,
 		}
@@ -1327,8 +1675,14 @@ class HangerLoadDistributionPanel(wx.Panel):
 		if not state:
 			return
 		
-		if 'hitch_weight' in state:
-			self.hitch_weight.SetValue(str(state['hitch_weight']))
+		if 'rear_axle_empty' in state:
+			self.rear_axle_empty.SetValue(str(state['rear_axle_empty']))
+		elif 'hitch_weight' in state:  # 後方互換性のため
+			self.rear_axle_empty.SetValue(str(state['hitch_weight']))
+		if 'rear_axle_loaded' in state:
+			self.rear_axle_loaded.SetValue(str(state['rear_axle_loaded']))
+		elif 'hitch_weight' in state:  # 後方互換性のため
+			self.rear_axle_loaded.SetValue(str(state['hitch_weight']))
 		if 'hanger_count' in state:
 			self.hanger_count.SetValue(str(state['hanger_count']))
 		
@@ -5638,7 +5992,9 @@ class LeafSpringCushionStrengthPanel(wx.Panel):
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		btn_calc = wx.Button(self, label='計算')
 		btn_pdf = wx.Button(self, label='PDF出力')
-		btn_pdf.Enable(False)
+		btn_pdf.Enable(_REPORTLAB_AVAILABLE)
+		if not _REPORTLAB_AVAILABLE:
+			btn_pdf.SetToolTip('ReportLab未インストールのためPDF出力は無効です。requirements.txtをインストールしてください。')
 		row.Add(btn_calc, 0, wx.RIGHT, 8)
 		row.Add(btn_pdf, 0)
 		main.Add(row, 0, wx.ALIGN_CENTER | wx.ALL, 6)
@@ -7489,10 +7845,7 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		self.load_grid.SetColLabelValue(0, '名称（部品）')
 		self.load_grid.SetColLabelValue(1, '重量 [kg]')
 		self.load_grid.SetColLabelValue(2, '位置 [mm]')
-		# 列幅を調整
-		self.load_grid.SetColSize(0, 140)
-		self.load_grid.SetColSize(1, 100)
-		self.load_grid.SetColSize(2, 110)
+		self.load_grid.AutoSizeColumns()
 		hl.Add(self.load_grid, 1, wx.EXPAND|wx.ALL, 4)
 
 		# 行追加・削除ボタン
@@ -7510,19 +7863,35 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		v.Add(hl, 1, wx.EXPAND|wx.ALL, 6)
 
 		# 面荷重（スプリングハンガ等）
-		dist_box = wx.StaticBoxSizer(wx.StaticBox(self, label='4. 面荷重（スプリングハンガ等：区間一様荷重として入力）'), wx.VERTICAL)
-		desc_dist = wx.StaticText(self, label='ハンガ本数に応じて任意行を追加してください。合計重量を開始/終了位置間に一様分布させます。')
+		dist_box = wx.StaticBoxSizer(wx.StaticBox(self, label='4. 面荷重/面支持（スプリングハンガ等：区間一様分布）'), wx.VERTICAL)
+		desc_dist = wx.StaticText(self, label='ハンガ本数に応じて任意行を追加してください。\n・中心位置と接触面積(mm²)を入力すると、自動的に区間として計算されます\n・面荷重: 下向きの一様荷重として扱います\n・面支持: 上向きの一様反力として扱います（接触面積に応じて剛性補正）')
 		desc_dist.SetForegroundColour(wx.Colour(60, 60, 60))
 		dist_box.Add(desc_dist, 0, wx.ALL, 4)
 		self.dist_load_grid = wx.grid.Grid(self)
-		self.dist_load_grid.CreateGrid(3, 4)
+		self.dist_load_grid.CreateGrid(3, 5)
 		self.dist_load_grid.SetColLabelValue(0, '名称')
-		self.dist_load_grid.SetColLabelValue(1, '重量 [kg]')
-		self.dist_load_grid.SetColLabelValue(2, '開始位置 [mm]')
-		self.dist_load_grid.SetColLabelValue(3, '終了位置 [mm]')
-		for c in range(4):
-			self.dist_load_grid.SetColSize(c, 120 if c==0 else 95)
+		self.dist_load_grid.SetColLabelValue(1, '重量/反力 [kg]')
+		self.dist_load_grid.SetColLabelValue(2, 'カプラーからハンガー中心位置までの距離 [mm]')
+		self.dist_load_grid.SetColLabelValue(3, '接触面積 [mm²]')
+		self.dist_load_grid.SetColLabelValue(4, '種別')
+		self.dist_load_grid.AutoSizeColumns()
+		# 種別列にドロップダウンリストを設定
+		from wx.grid import GridCellChoiceEditor
+		for r in range(self.dist_load_grid.GetNumberRows()):
+			attr = wx.grid.GridCellAttr()
+			attr.SetEditor(GridCellChoiceEditor(['面荷重', '面支持'], allowOthers=False))
+			attr.SetAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
+			self.dist_load_grid.SetAttr(r, 4, attr)
+			self.dist_load_grid.SetCellValue(r, 4, '面支持')  # デフォルト値を「面支持」に
 		dist_box.Add(self.dist_load_grid, 1, wx.EXPAND|wx.ALL, 4)
+
+		# 面支持剛性係数 α 入力（接触面積によるZ倍率の係数）
+		alpha_row = wx.BoxSizer(wx.HORIZONTAL)
+		alpha_row.Add(wx.StaticText(self, label='面支持剛性係数 α'), 0, wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, 8)
+		self.support_area_alpha = wx.TextCtrl(self, value='1.0', style=wx.TE_RIGHT)
+		self.support_area_alpha.SetToolTip('面支持区間のモーメントを「1 - α × (面積/500)」で低減します（最小0.1）。10mm²刻みでも安全率が変動します。')
+		alpha_row.Add(self.support_area_alpha, 0)
+		dist_box.Add(alpha_row, 0, wx.ALL, 4)
 		dist_ctrls = wx.BoxSizer(wx.HORIZONTAL)
 		btn_dist_add = wx.Button(self, label='面荷重 行追加')
 		btn_dist_remove = wx.Button(self, label='面荷重 行削除')
@@ -7548,12 +7917,24 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		btn_add.Bind(wx.EVT_BUTTON, lambda e: self.load_grid.AppendRows(1))
 		btn_remove.Bind(wx.EVT_BUTTON, lambda e: self._remove_selected_rows())
 		btn_import.Bind(wx.EVT_BUTTON, lambda e: self._import_from_components())
-		btn_dist_add.Bind(wx.EVT_BUTTON, lambda e: self.dist_load_grid.AppendRows(1))
+		btn_dist_add.Bind(wx.EVT_BUTTON, lambda e: self._add_dist_row())
 		btn_dist_remove.Bind(wx.EVT_BUTTON, lambda e: self._remove_selected_dist_rows())
 		btn_calc.Bind(wx.EVT_BUTTON, lambda e: (self.on_calc(), e.Skip()))
 		btn_pdf.Bind(wx.EVT_BUTTON, lambda e: (self.on_export_pdf(), e.Skip()))
 
 		self.SetSizer(v)
+
+	def _add_dist_row(self):
+		"""面荷重グリッドに行を追加し、ドロップダウンを設定"""
+		from wx.grid import GridCellChoiceEditor
+		self.dist_load_grid.AppendRows(1)
+		r = self.dist_load_grid.GetNumberRows() - 1
+		# 新しい行にドロップダウン属性を設定
+		attr = wx.grid.GridCellAttr()
+		attr.SetEditor(GridCellChoiceEditor(['面荷重', '面支持'], allowOthers=False))
+		attr.SetAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
+		self.dist_load_grid.SetAttr(r, 4, attr)
+		self.dist_load_grid.SetCellValue(r, 4, '面支持')  # デフォルト値
 
 	def _remove_selected_rows(self):
 		rows = self.load_grid.GetSelectedRows()
@@ -7737,25 +8118,43 @@ class VehicleFrameStrengthPanel(wx.Panel):
 					loads.append((name, w, x))
 
 				# read distributed loads (uniform over start-end)
-				dist_loads = []  # (name, weight, x1, x2)
-				for r in range(self.dist_load_grid.GetNumberRows()):
-					name = self.dist_load_grid.GetCellValue(r,0) or f'Q{r+1}'
-					try:
-						w = float(self.dist_load_grid.GetCellValue(r,1) or 0)
-					except Exception:
-						w = 0.0
-					try:
-						x1 = float(self.dist_load_grid.GetCellValue(r,2) or 0)
-					except Exception:
-						x1 = 0.0
-					try:
-						x2 = float(self.dist_load_grid.GetCellValue(r,3) or 0)
-					except Exception:
-						x2 = 0.0
-					if w != 0 and x2 > x1:
-						dist_loads.append((name, w, x1, x2))
-
-			# discretize
+				dist_loads = []  # (name, weight, x1, x2, kind, area_mm2)
+			dist_debug_info = []  # デバッグ用
+			for r in range(self.dist_load_grid.GetNumberRows()):
+				name = self.dist_load_grid.GetCellValue(r,0) or f'Q{r+1}'
+				try:
+					w = float(self.dist_load_grid.GetCellValue(r,1) or 0)
+				except Exception:
+					w = 0.0
+				try:
+					center_pos = float(self.dist_load_grid.GetCellValue(r,2) or 0)
+				except Exception:
+					center_pos = 0.0
+				try:
+					area_mm2 = float(self.dist_load_grid.GetCellValue(r,3) or 0)
+				except Exception:
+					area_mm2 = 0.0
+				# 種別を取得
+				kind = (self.dist_load_grid.GetCellValue(r,4) or '面荷重').strip()
+				is_support = (kind == '面支持' or kind.lower() in ('支持','support'))
+				# デバッグ情報を記録
+				raw_w = self.dist_load_grid.GetCellValue(r,1)
+				raw_area = self.dist_load_grid.GetCellValue(r,3)
+				dist_debug_info.append(f'    行{r+1}: name={name}, w_raw={raw_w}, w={w}, area_raw={raw_area}, area={area_mm2}, kind={kind}')
+				# 中心位置と面積から開始・終了位置を計算
+				if area_mm2 > 0:
+					import math
+					width = math.sqrt(area_mm2)  # 面積の平方根を幅とする
+					x1 = center_pos - width / 2.0
+					x2 = center_pos + width / 2.0
+					# 荷重としては w!=0 の場合だけせん断力に反映する
+					if w != 0:
+						dist_loads.append((name, w, x1, x2, kind, area_mm2))
+					# 面支持は w=0 でもモーメント低減のために登録しておく
+					elif is_support:
+						dist_loads.append((name, 0.0, x1, x2, kind, area_mm2))
+				else:
+					dist_debug_info[-1] += ' (※スキップ: 面積0)'
 			npts = 121
 			xs = [i*(L/(npts-1)) for i in range(npts)]
 			Vs = [0.0]*npts
@@ -7763,19 +8162,20 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				for i,xx in enumerate(xs):
 					if xx >= x:
 						Vs[i] -= w*9.80665
-			# 面荷重（区間一様荷重）をせん断力へ加算
-			for name,w,x1,x2 in dist_loads:
+			# 面荷重/面支持（区間一様荷重/反力）をせん断力へ加算
+			for name,w,x1,x2,kind,area_cm2 in dist_loads:
 				length = x2 - x1
 				if length <= 0:
 					continue
-				q = (w*9.80665) / length  # N/mm 一様荷重（下向き）
+				q = (w*9.80665) / length  # N/mm 一様量
+				is_support = (kind == '面支持' or kind.lower() in ('支持','support'))
 				for i,xx in enumerate(xs):
 					if xx < x1:
 						continue
 					if xx >= x2:
-						Vs[i] -= q * length
+						Vs[i] += q * length if is_support else - q * length
 					else:
-						Vs[i] -= q * (xx - x1)
+						Vs[i] += q * (xx - x1) if is_support else - q * (xx - x1)
 
 			# integrate for moment (M[0]=0)
 			Ms = [0.0]*npts
@@ -7785,6 +8185,37 @@ class VehicleFrameStrengthPanel(wx.Panel):
 
 			# 複数セクション対応：各位置でのZ値を計算
 			Zs = [0.0]*npts
+			# 面支持によるモーメント低減補正（荷重分散効果）を単独で使用
+			# Z倍率は不要（モーメント低減で十分に効果が出る）
+			M_multiplier = [1.0]*npts
+			Z_multiplier = [1.0]*npts  # 互換性のために残す（使用しない）
+			
+			# 係数 α を入力から取得（不正値は既定 1.0）
+			try:
+				alpha_coeff = float(self.support_area_alpha.GetValue() or '1.0')
+				if alpha_coeff < 0:
+					alpha_coeff = 0.0
+			except Exception:
+				alpha_coeff = 1.0
+			
+			for name,w,x1,x2,kind,area_mm2 in dist_loads:
+				if (kind == '面支持' or kind.lower() in ('支持','support')) and area_mm2 > 0 and x2 > x1:
+					# モーメント低減係数: 接触面積が大きいほど低減（支持効果が強い）
+					# さらに高感度化：M_factor = 1 - α × (面積/500)
+					# α=1.0の場合：
+					#   面積10mm² → 98%（2%低減）
+					#   面積100mm² → 80%（20%低減）
+					#   面積500mm² → 30%（70%低減、最小保持）
+					#   面積1,000mm² → 10%（下限に到達）
+					m_reduction = alpha_coeff * (area_mm2 / 500.0)  # 10mm²刻みでも変動を感じる超高感度
+					m_factor = max(0.1, 1.0 - m_reduction)  # 最小10%は保持
+					for i,xx in enumerate(xs):
+						if x1 <= xx <= x2:
+							M_multiplier[i] *= m_factor
+			
+			# モーメント値に低減補正を適用
+			Ms = [Ms[i] * M_multiplier[i] for i in range(len(Ms))]
+			
 			section_results = []  # (x1, x2, I, Z, sigma_max)
 			
 			if is_multi:
@@ -7823,7 +8254,7 @@ class VehicleFrameStrengthPanel(wx.Panel):
 							# このセクション内の位置のZs値を設定
 							for i, xi in enumerate(xs):
 								if x1 <= xi <= x2:
-									Zs[i] = Z_eff_with_horiz
+									Zs[i] = Z_eff_with_horiz  # Z_multiplierは使用しない
 							
 							# セクションの最大応力を計算（このセクション内のMs最大値を使用）
 							Ms_in_sec = [Ms[i] for i in range(len(Ms)) if x1 <= xs[i] <= x2]
@@ -7856,7 +8287,7 @@ class VehicleFrameStrengthPanel(wx.Panel):
 							I = (B * (H**3) - b_in * (h_in**3)) / 12.0
 						else:
 							I = (B * H**3) / 12.0
-						Zs[i] = I / (H/2.0) if H>0 else 0.0
+						Zs[i] = (I / (H/2.0) if H>0 else 0.0)  # Z_multiplierは使用しない
 					else:
 						# H形鋼
 						h_web = max(H - 2*tf, 0)
@@ -7865,9 +8296,7 @@ class VehicleFrameStrengthPanel(wx.Panel):
 						d = H/2.0 - tf/2.0
 						If_one = (bf * (tf**3))/12.0 + Af * (d**2)
 						I = Iw + 2.0 * If_one
-						Zs[i] = I / (H/2.0) if H>0 else 0.0
-				
-				# max moment (abs)
+					Zs[i] = (I / (H/2.0) if H>0 else 0.0)  # Z_multiplierは使用しない
 				Mmax = max(Ms, key=lambda v: abs(v))
 				sigma_max = 0.0
 				for i in range(len(Ms)):
@@ -7900,10 +8329,24 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				'material': mat_name,
 				'section_results': section_results,
 				'is_multi': is_multi,
-				'dist_loads': dist_loads
+				'dist_loads': dist_loads,
+				'support_area_alpha': alpha_coeff
 			}
 
 			# display
+			# 面支持の効果を計算（参考値）
+			support_info = []
+			total_m_reduction_pct = 0.0
+			m_multiplier_min = min(M_multiplier) if M_multiplier else 1.0
+			m_multiplier_max = max(M_multiplier) if M_multiplier else 1.0
+			for name,w,x1,x2,kind,area_mm2 in dist_loads:
+				if (kind == '面支持' or kind.lower() in ('支持','support')) and area_mm2 > 0:
+					m_reduction = alpha_coeff * (area_mm2 / 500.0)
+					m_factor = max(0.1, 1.0 - m_reduction)
+					reduction_pct = (1.0 - m_factor) * 100
+					total_m_reduction_pct = max(total_m_reduction_pct, reduction_pct)
+					support_info.append(f'  {name}: 面積{area_mm2:.0f}mm² → M低減{reduction_pct:.1f}%（係数{m_factor:.1%}）')
+			
 			lines = [
 				'車枠強度計算（新）- トレーラーフレーム',
 				f'全長 L = {L:.0f} mm',
@@ -7913,13 +8356,35 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				f'最大曲げモーメント Mmax = {Mmax/1000:.3f} N·m ({Mmax:.0f} N·mm)',
 				f'最大曲げ応力 σmax = {sigma_max:.3f} N/mm²',
 				'',
+				'【計算方法の要点】',
+				'・面荷重は区間一様の下向き荷重として扱い、曲げ応力を増加させます。',
+				'・面支持（スプリングハンガ等）は区間一様の上向き反力として扱い、曲げ応力を低減させます。',
+				'・面支持区間では、接触面積に応じてモーメント値を低減（荷重分散効果）',
+				f'・係数 α = {alpha_coeff:.6f}（M低減 = α × 面積/500、10mm²刻みで変動）',
+				'',
+				'【面支持の効果】',
+			]
+			if support_info:
+				lines.extend(support_info)
+				if total_m_reduction_pct > 0:
+					lines.append(f'  → 総合M低減率: {total_m_reduction_pct:.1f}%, 係数最小/最大: {m_multiplier_min:.3f} / {m_multiplier_max:.3f}')
+			else:
+				lines.append('  (面支持なし - グリッドに入力があるか確認してください)')
+				lines.append(f'【診断】')
+				lines.append(f'  グリッド読み込み結果（全{self.dist_load_grid.GetNumberRows()}行）：')
+				lines.extend(dist_debug_info)
+				lines.append(f'  dist_loads件数={len(dist_loads)}, α={alpha_coeff}')
+				lines.append(f'  M低減係数 最小/最大: {m_multiplier_min:.3f} / {m_multiplier_max:.3f}')
+			
+			lines.extend([
+				'',
 				'【材質】',
 				f'{self.last["material"]} (引張強さ {tensile:.0f} N/mm², 降伏点 {yield_pt:.0f} N/mm²)',
 				'',
 				'【安全性】',
 				f'破断安全率 = {sf_break:.2f}  (基準 1.6) {"✓ OK" if sf_break >= 1.6 else "✗ NG"}',
 				f'降伏安全率 = {sf_yield:.2f}  (基準 1.3) {"✓ OK" if sf_yield >= 1.3 else "✗ NG"}'
-			]
+			])
 			
 			# 複数セクション時の詳細表示
 			if is_multi and section_results:
@@ -7946,11 +8411,12 @@ class VehicleFrameStrengthPanel(wx.Panel):
 					for suggestion in suggestions:
 						lines.append(suggestion)
 			
-			self.result_text.SetValue('\n'.join(lines))
-			self.btn_pdf.Enable(True)
+				self.result_text.SetValue('\n'.join(lines))
+				self._update_pdf_button()
 
 		except Exception as e:
 			wx.MessageBox(f'計算エラー: {e}', 'エラー', wx.OK | wx.ICON_ERROR)
+			self._update_pdf_button(force_disable=True)
 
 	def _generate_improvement_suggestions(self, sf_break, sf_yield, sigma_max, tensile, yield_pt, factor, is_multi, Z, B, H, t):
 		"""安全性がNGの場合の改善案を生成"""
@@ -8030,410 +8496,138 @@ class VehicleFrameStrengthPanel(wx.Panel):
 		suggestions.append(f'  → 上記の方法を組み合わせることで、より経済的な設計が可能')
 		suggestions.append(f'  → 材質変更（小）+ 断面拡大（中程度）+ 支柱増加（小）')
 		suggestions.append(f'  → などのバランスの取れた改善')
-		
+
 		return suggestions
 
-
+	def _update_pdf_button(self, force_disable: bool = False):
+		if not hasattr(self, 'btn_pdf'):
+			return
+		enable = (not force_disable) and _REPORTLAB_AVAILABLE and (self.last is not None)
+		self.btn_pdf.Enable(enable)
+		
 	def on_export_pdf(self):
+		"""車枠強度（新）の計算結果をPDF出力"""
 		if not self.last:
 			wx.MessageBox('先に計算を実行してください。', '情報', wx.OK | wx.ICON_INFORMATION)
 			return
-		# ask path
-		dlg = wx.FileDialog(self, 'PDF保存先を選択', wildcard='PDF files (*.pdf)|*.pdf', style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT, defaultFile='車枠強度計算書.pdf')
+		if not _REPORTLAB_AVAILABLE:
+			wx.MessageBox('ReportLabが未インストールです。requirements.txtをインストールしてください。', 'PDF出力不可', wx.ICON_ERROR)
+			return
+		dlg = wx.FileDialog(self, 'PDF保存先を選択', wildcard='PDF files (*.pdf)|*.pdf', style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT, defaultFile='車枠強度計算書（新）.pdf')
 		if dlg.ShowModal() != wx.ID_OK:
 			dlg.Destroy(); return
 		path = dlg.GetPath(); dlg.Destroy()
-
 		try:
-			self._generate_detailed_pdf(path)
+			self._generate_frame_pdf(path)
 			wx.MessageBox(f'PDF出力完了:\n{path}', '完了', wx.OK | wx.ICON_INFORMATION)
 		except Exception as e:
 			wx.MessageBox(f'PDF出力中にエラーが発生しました:\n{e}', 'エラー', wx.OK | wx.ICON_ERROR)
 
-	def _generate_detailed_pdf(self, path):
-		"""詳細な車枠強度計算書PDFを生成"""
-		from reportlab.pdfgen import canvas
-		from reportlab.lib.pagesizes import A4
+	def _generate_frame_pdf(self, path: str):
+		"""添付フォームを参考にした簡易レイアウトでPDFを生成"""
 		from reportlab.lib import colors
 		from reportlab.platypus import Table, TableStyle
-		
-		# 型チェック対策：self.lastは必ず存在する（on_export_pdfでチェック済み）
-		if not self.last:
-			return
-		
-		c = canvas.Canvas(path, pagesize=A4)
-		w, h = A4
+		c = _pdf_canvas.Canvas(path, pagesize=_A4)
+		w, h = _A4
 		font = 'Helvetica'
-		
-		# ========== ページ1: タイトルと仮定 ==========
-		y = h - 50
+		last = self.last or {}
+		L = last.get('L', 0)
+		alpha_coeff = last.get('support_area_alpha', 0.0)
+		material = last.get('material', 'カスタム')
+		tensile = last.get('tensile', 0)
+		yield_pt = last.get('yield_pt', 0)
+		factor = last.get('factor', 1.0)
+		sf_break = last.get('sf_break', 0.0)
+		sf_yield = last.get('sf_yield', 0.0)
+		sigma_max = last.get('sigma_max', 0.0)
+		Mmax = last.get('Mmax', 0.0)
+		section_str = last.get('section_str', '')
+		loads = last.get('loads', []) or []
+		dist_loads = last.get('dist_loads', []) or []
+		xs = last.get('xs', []) or []
+		Vs = last.get('Vs', []) or []
+		Ms = last.get('Ms', []) or []
+		# ==== Page 1: 基本情報・荷重 ==== 
+		y = h - 40
 		c.setFont(font + '-Bold', 16)
-		c.drawCentredString(w/2, y, '《車枠強度計算書》 その1')
-		y -= 40
-		
-		c.setFont(font, 10)
-		intro_text = '車枠にかかる荷重及び走行中の衝撃、振動による負荷に耐えるか否かについて検討する。尚、解析の仮定は次の通りとする。'
-		c.drawString(60, y, intro_text)
+		c.drawCentredString(w/2, y, '車枠強度計算書（新）')
 		y -= 30
-		
-		# (1) 仮定
-		c.setFont(font + '-Bold', 11)
-		c.drawString(60, y, '(1) 仮定')
-		y -= 20
-		
 		c.setFont(font, 10)
-		assumptions = [
-			f'(1) 梯子型フレームの{self.main_vertical_beams.GetValue() or "2"}本のメインレールに負荷が作用する。',
-			'(2) 反力はキングピン（第5輪）位置にRF、後輪中心位置にRRとする。',
-			f'(3) 荷重倍数  n = {self.last["factor"]:.1f}  とする。',
-			'(4) 曲げモーメント及びせん断力の正負規約'
-		]
-		for assumption in assumptions:
-			c.drawString(80, y, assumption)
-			y -= 18
-		
-		# 正負規約の図（簡易版）
-		y -= 10
-		# 正の曲げモーメント
-		c.rect(120, y-40, 60, 80)
-		c.drawString(100, y+50, '正')
-		c.setFont(font, 8)
-		c.drawString(135, y+20, 'm')
-		c.drawString(135, y-20, "m'")
-		c.drawString(125, y+35, 'M')
-		# 矢印
-		c.setStrokeColor(colors.black)
-		c.setLineWidth(1)
-		c.line(135, y+45, 135, y+55)
-		c.line(135, y+55, 130, y+50)
-		c.line(135, y+55, 140, y+50)
-		c.line(165, y+45, 165, y+55)
-		c.line(165, y+55, 160, y+50)
-		c.line(165, y+55, 170, y+50)
-		c.line(135, y-55, 135, y-45)
-		c.line(135, y-55, 130, y-50)
-		c.line(135, y-55, 140, y-50)
-		c.line(165, y-55, 165, y-45)
-		c.line(165, y-55, 160, y-50)
-		c.line(165, y-55, 170, y-50)
-		
-		# 負の曲げモーメント
-		c.rect(280, y-40, 60, 80)
-		c.drawString(260, y+50, '負')
-		c.setFont(font, 8)
-		c.drawString(295, y+20, 'm')
-		c.drawString(295, y-20, "m'")
-		c.drawString(285, y, 'M')
-		# 矢印
-		c.line(295, y-55, 295, y-45)
-		c.line(295, y-45, 290, y-50)
-		c.line(295, y-45, 300, y-50)
-		c.line(325, y-55, 325, y-45)
-		c.line(325, y-45, 320, y-50)
-		c.line(325, y-45, 330, y-50)
-		c.line(295, y+55, 295, y+45)
-		c.line(295, y+45, 290, y+50)
-		c.line(295, y+45, 300, y+50)
-		c.line(325, y+55, 325, y+45)
-		c.line(325, y+45, 320, y+50)
-		c.line(325, y+45, 330, y+50)
-		
-		y -= 100
-		
-		# (2) 分布荷重
+		c.drawString(60, y, f'計算条件: 荷重倍率 n = {factor:.2f}, 面支持係数 α = {alpha_coeff:.4f}')
+		y -= 14
+		c.drawString(60, y, f'フレーム全長 L = {L:.1f} mm / 断面: {section_str}')
+		y -= 14
+		c.drawString(60, y, f'材質: {material} (σb={tensile:.0f} N/mm², σy={yield_pt:.0f} N/mm²)')
+		y -= 18
+		# 荷重一覧
 		c.setFont(font + '-Bold', 11)
-		c.drawString(60, y, '(2) 分布荷重')
-		y -= 20
-		
-		c.setFont(font, 10)
-		# 分布荷重テーブル（点荷重＋面荷重）
-		load_data = [['', '荷重名称', '重量\nkg', '位置/開始\nmm', '終了\nmm', '分布荷重\nkg/mm']]
-		# 点荷重
-		for idx, (name, weight, pos) in enumerate(self.last['loads'], 1):
-			dist_load = weight / self.last['L'] if self.last['L'] > 0 else 0
-			load_data.append([f'P{idx}', str(name), f'{weight:.0f}', f'{pos:.0f}', '', f'{dist_load:.6f}'])
-		# 面荷重
-		dist_loads = self.last.get('dist_loads', []) or []
-		for idx, (name, weight, x1, x2) in enumerate(dist_loads, 1):
+		c.drawString(60, y, '【荷重一覧】')
+		y -= 16
+		load_rows = [['No', '名称', '重量[kg]', '位置[mm]', '接触面積[mm²]', '区間[mm]', '種別']]
+		for idx,(name,weight,pos) in enumerate(loads,1):
+			load_rows.append([f'P{idx}', str(name), f'{weight:.1f}', f'{pos:.1f}', '', '', '点荷重'])
+		for idx,item in enumerate(dist_loads,1):
+			if len(item) >= 6:
+				name,weight,x1,x2,kind,area = item[:6]
+			else:
+				continue
+			center = (x1 + x2)/2.0
 			length = x2 - x1
-			dist_val = (weight / length) if length > 0 else 0
-			load_data.append([f'Q{idx}', str(name), f'{weight:.0f}', f'{x1:.0f}', f'{x2:.0f}', f'{dist_val:.6f}'])
-
-		load_table = Table(load_data, colWidths=[30, 120, 60, 70, 70, 80])
+			load_rows.append([f'Q{idx}', str(name), f'{weight:.1f}', f'{center:.1f}', f'{area:.1f}', f'{length:.1f}', str(kind)])
+		load_table = Table(load_rows, colWidths=[28,100,70,70,85,70,60])
 		load_table.setStyle(TableStyle([
-			('FONT', (0, 0), (-1, -1), font, 9),
-			('FONT', (0, 0), (-1, 0), font + '-Bold', 9),
-			('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-			('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-			('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-			('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+			('FONT',(0,0),(-1,-1),font,9),
+			('FONT',(0,0),(-1,0),font+'-Bold',9),
+			('GRID',(0,0),(-1,-1),0.5,colors.black),
+			('BACKGROUND',(0,0),(-1,0),colors.lightgrey),
+			('ALIGN',(0,0),(-1,-1),'CENTER'),
+			('VALIGN',(0,0),(-1,-1),'MIDDLE'),
 		]))
-		load_table.wrapOn(c, w, h)
-		load_table.drawOn(c, 60, y - len(load_data) * 20)
-		y -= (len(load_data) * 20 + 30)
-		
-		# ========== ページ2: 計算詳細テーブル ==========
+		load_table.wrapOn(c,w,h)
+		load_table.drawOn(c,60,y - len(load_rows)*18)
+		y -= (len(load_rows)*18 + 16)
+		# 結果概要
+		c.setFont(font + '-Bold', 11)
+		c.drawString(60, y, '【計算結果】')
+		y -= 14
+		c.setFont(font, 10)
+		c.drawString(70, y, f'Mmax = {Mmax/1000:.3f} kN·m   σmax = {sigma_max:.3f} N/mm²')
+		y -= 14
+		c.drawString(70, y, f'破断安全率 = {sf_break:.2f}  (基準1.6)')
+		y -= 14
+		c.drawString(70, y, f'降伏安全率 = {sf_yield:.2f} (基準1.3)')
+		y -= 18
+		c.drawString(70, y, '※面支持は接触面積に応じてモーメント低減 (1 - α×面積/500, 下限0.1)')
 		c.showPage()
+		# ==== Page 2: せん断力・曲げモーメント抜粋 ====
 		y = h - 40
-		c.setFont(font + '-Bold', 16)
-		c.drawCentredString(w/2, y, '《車枠強度計算書》 その2')
-		y -= 30
-		
-		# 計算データテーブル
-		c.setFont(font, 7)
-		table_data = [['順', '名称', 'K.P.L\nmm', '反間距離\nmm', '荷重\nN', '荷分布荷重\nN/mm', 
-		               'せん断力\nN', 'せん断力\n×10000\nN·mm', 'モーメント\n×10000\nN·mm', 
-		               '累計\n×10000\nN·mm', '断面係数\nmm³', '曲げ応力\nN/mm²']]
-		
-		# データ行を生成
-		xs = self.last['xs']
-		Vs = self.last['Vs']
-		Ms = self.last['Ms']
-		Zs = self.last['Zs']
-		loads_dict = {pos: (name, weight) for name, weight, pos in self.last['loads']}
-		
-		cumulative_M = 0
-		for i in range(len(xs)):
-			row_num = i + 1
-			x_pos = xs[i]
-			V = Vs[i]
-			M = Ms[i]
-			Z = Zs[i] if i < len(Zs) else 0
-			
-			# 名称を取得
-			name = ''
-			load_val = 0
-			if x_pos in loads_dict:
-				name, load_val = loads_dict[x_pos]
-			elif i == 0:
-				name = '前端'
-			elif i == len(xs) - 1:
-				name = '後端'
-			
-			# 前回からの距離
-			dist = x_pos - xs[i-1] if i > 0 else 0
-			
-			# モーメント増分
-			M_increment = (M - Ms[i-1]) if i > 0 else 0
-			
-			# 応力
-			sigma = abs(M) / Z if Z > 0 else 0
-			
-			row = [
-				str(row_num),
-				name[:10],
-				f'{x_pos:.0f}',
-				f'{dist:.0f}' if i > 0 else '',
-				f'{load_val:.0f}' if load_val != 0 else '',
-				'',  # 分布荷重
-				f'{V:.0f}',
-				f'{V/10000:.2f}',
-				f'{M_increment/10000:.2f}' if i > 0 else '',
-				f'{M/10000:.2f}',
-				f'{Z:.0f}' if Z > 0 else '',
-				f'{sigma:.2f}'
-			]
-			table_data.append(row)
-		
-		# テーブルを複数ページに分割する可能性
-		max_rows_per_page = 35
-		current_row = 0
-		while current_row < len(table_data):
-			end_row = min(current_row + max_rows_per_page, len(table_data))
-			page_data = table_data[current_row:end_row] if current_row > 0 else table_data[:end_row]
-			
-			if current_row > 0:
-				# ヘッダーを再度追加
-				page_data = [table_data[0]] + page_data
-			
-			calc_table = Table(page_data, colWidths=[25, 50, 35, 35, 35, 35, 45, 45, 45, 45, 45, 40])
-			calc_table.setStyle(TableStyle([
-				('FONT', (0, 0), (-1, -1), font, 6),
-				('FONT', (0, 0), (-1, 0), font + '-Bold', 7),
-				('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-				('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-				('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-				('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+		c.setFont(font + '-Bold', 14)
+		c.drawCentredString(w/2, y, 'せん断力・曲げモーメント抜粋')
+		y -= 24
+		c.setFont(font, 9)
+		c.drawString(60, y, '代表点でのせん断力VとモーメントMを抜粋表示（詳細はアプリ計算結果を参照）')
+		y -= 14
+		if xs and Vs and Ms:
+			step = max(1, len(xs)//18)
+			rows = [['No','位置x[mm]','V[N]','M[N·mm]','M[kN·m]']]
+			for i in range(0,len(xs),step):
+				rows.append([str(i+1), f'{xs[i]:.1f}', f'{Vs[i]:.1f}', f'{Ms[i]:.1f}', f'{Ms[i]/1000:.3f}'])
+			data_table = Table(rows, colWidths=[28,80,90,110,80])
+			data_table.setStyle(TableStyle([
+				('FONT',(0,0),(-1,-1),font,8),
+				('FONT',(0,0),(-1,0),font+'-Bold',8),
+				('GRID',(0,0),(-1,-1),0.5,colors.black),
+				('BACKGROUND',(0,0),(-1,0),colors.lightgrey),
+				('ALIGN',(0,0),(-1,-1),'CENTER'),
+				('VALIGN',(0,0),(-1,-1),'MIDDLE'),
 			]))
-			calc_table.wrapOn(c, w, h)
-			calc_table.drawOn(c, 30, y - len(page_data) * 12)
-			
-			current_row = end_row
-			if current_row < len(table_data):
-				c.showPage()
-				y = h - 40
-		
-		# ========== ページ3: 最終結果 ==========
+			data_table.wrapOn(c,w,h)
+			data_table.drawOn(c,60,y - len(rows)*14)
+			y -= (len(rows)*14 + 20)
+		else:
+			c.drawString(60, y, '計算データが不足しているため表を表示できません。')
+			y -= 16
 		c.showPage()
-		y = h - 40
-		c.setFont(font + '-Bold', 16)
-		c.drawCentredString(w/2, y, '《車枠強度計算書》 その3')
-		y -= 40
-		
-		c.setFont(font, 11)
-		# 最大曲げ応力
-		max_M_idx = Ms.index(max(Ms, key=abs))
-		c.drawString(60, y, f'以上より最大曲げ応力位置    断面  {max_M_idx + 1}')
-		y -= 25
-		
-		c.setFont(font, 12)
-		c.drawString(100, y, f'最大曲げ応力   σmax = {self.last["sigma_max"]:.2f} N/mm²')
-		y -= 35
-		
-		# 車枠材質
-		c.setFont(font, 11)
-		mat_name = self.last.get('material', 'カスタム')
-		c.drawString(60, y, f'車枠材質   {mat_name}')
-		y -= 20
-		c.setFont(font, 12)
-		c.drawString(140, y, f'引張り強さ   σb = {self.last["tensile"]:.0f} N/mm²')
-		y -= 25
-		c.drawString(140, y, f'降伏点       σy = {self.last["yield_pt"]:.0f} N/mm²')
-		y -= 35
-		
-		# 破壊安全率
-		c.setFont(font, 11)
-		c.drawString(60, y, '破壊安全率')
-		y -= 25
-		c.setFont(font, 12)
-		fb_calc = f'{self.last["tensile"]:.0f} / ({self.last["factor"]:.1f} × {self.last["sigma_max"]:.2f})'
-		c.drawString(80, y, f'fb = {fb_calc} = {self.last["sf_break"]:.2f} ≧ 1.6')
-		y -= 35
-		
-		# 降伏安全率
-		c.setFont(font, 11)
-		c.drawString(60, y, '降伏安全率')
-		y -= 25
-		c.setFont(font, 12)
-		fy_calc = f'{self.last["yield_pt"]:.0f} / ({self.last["factor"]:.1f} × {self.last["sigma_max"]:.2f})'
-		c.drawString(80, y, f'fy = {fy_calc} = {self.last["sf_yield"]:.2f} ≧ 1.3')
-		y -= 45
-		
-		# 最大せん断力
-		max_V = max(Vs, key=abs)
-		max_V_idx = Vs.index(max_V)
-		c.setFont(font, 11)
-		c.drawString(60, y, f'最大せん断力位置    断面  {max_V_idx + 1}')
-		y -= 25
-		c.setFont(font, 12)
-		c.drawString(100, y, f'最大せん断力   τmax = {abs(max_V):.2f} N/mm²')
-		y -= 35
-		
-		# せん断応力（簡易計算: 0.6倍）
-		c.setFont(font, 11)
-		shear_strength = self.last["tensile"] * 0.6
-		c.drawString(60, y, f'せん断力強さ   σ = {self.last["tensile"]:.0f} × 0.6 = {shear_strength:.0f} N/mm²')
-		y -= 25
-		c.drawString(60, y, '安全率')
-		y -= 20
-		shear_safety = shear_strength / (self.last["factor"] * abs(max_V)) if max_V != 0 else 999
-		fb_shear_calc = f'{shear_strength:.0f} / ({self.last["factor"]:.1f} × {abs(max_V):.2f})'
-		c.setFont(font, 12)
-		c.drawString(80, y, f'fb = {fb_shear_calc} = {shear_safety:.2f} ≧ 1.6')
-		y -= 30
-		
-		c.setFont(font, 11)
-		c.drawString(80, y, '故に規定の安全率を満足する。')
-		
-		# ========== ページ4: グラフ ==========
-		c.showPage()
-		y = h - 40
-		
-		# せん断力線図
-		c.setFont(font + '-Bold', 12)
-		c.drawCentredString(w/2, y, 'せん断力線図')
-		y -= 20
-		
-		plot_left = 80
-		plot_right = w - 80
-		plot_width = plot_right - plot_left
-		plot_h = 180
-		
-		# せん断力グラフ
-		Vmin = min(Vs)
-		Vmax = max(Vs)
-		V_range = Vmax - Vmin if Vmax != Vmin else 1
-		
-		c.setStrokeColor(colors.black)
-		c.setLineWidth(0.5)
-		c.rect(plot_left, y - plot_h, plot_width, plot_h)
-		
-		# グリッド線（横）
-		for i in range(5):
-			y_grid = y - plot_h + (plot_h / 4) * i
-			c.setStrokeColor(colors.lightgrey)
-			c.line(plot_left, y_grid, plot_right, y_grid)
-			# 目盛り値
-			v_val = Vmin + (V_range / 4) * i
-			c.setFont(font, 7)
-			c.drawRightString(plot_left - 5, y_grid - 3, f'{v_val:.0f}')
-		
-		# データプロット
-		c.setStrokeColor(colors.blue)
-		c.setLineWidth(2)
-		for i in range(len(xs) - 1):
-			x1 = plot_left + (xs[i] / self.last['L']) * plot_width
-			x2 = plot_left + (xs[i+1] / self.last['L']) * plot_width
-			y1_val = y - plot_h + ((Vs[i] - Vmin) / V_range) * plot_h
-			y2_val = y - plot_h + ((Vs[i+1] - Vmin) / V_range) * plot_h
-			c.line(x1, y1_val, x2, y2_val)
-		
-		# X軸ラベル
-		c.setStrokeColor(colors.black)
-		c.setFont(font, 8)
-		for i in range(0, int(self.last['L'])+1, int(self.last['L']/6)):
-			x_pos = plot_left + (i / self.last['L']) * plot_width
-			c.line(x_pos, y - plot_h, x_pos, y - plot_h - 5)
-			c.drawCentredString(x_pos, y - plot_h - 15, f'{i:.0f}')
-		c.drawCentredString((plot_left + plot_right) / 2, y - plot_h - 30, '長さ(mm)')
-		
-		y -= (plot_h + 50)
-		
-		# 曲げモーメント線図
-		c.setFont(font + '-Bold', 12)
-		c.drawCentredString(w/2, y, '曲げモーメント線図')
-		y -= 20
-		
-		# 曲げモーメントグラフ
-		Mmin = min(Ms)
-		Mmax = max(Ms)
-		M_range = Mmax - Mmin if Mmax != Mmin else 1
-		
-		c.setStrokeColor(colors.black)
-		c.setLineWidth(0.5)
-		c.rect(plot_left, y - plot_h, plot_width, plot_h)
-		
-		# グリッド線（横）
-		for i in range(5):
-			y_grid = y - plot_h + (plot_h / 4) * i
-			c.setStrokeColor(colors.lightgrey)
-			c.line(plot_left, y_grid, plot_right, y_grid)
-			# 目盛り値
-			m_val = Mmin + (M_range / 4) * i
-			c.setFont(font, 7)
-			c.drawRightString(plot_left - 5, y_grid - 3, f'{m_val/10000:.0f}')
-		
-		# データプロット
-		c.setStrokeColor(colors.red)
-		c.setLineWidth(2)
-		for i in range(len(xs) - 1):
-			x1 = plot_left + (xs[i] / self.last['L']) * plot_width
-			x2 = plot_left + (xs[i+1] / self.last['L']) * plot_width
-			y1_val = y - plot_h + ((Ms[i] - Mmin) / M_range) * plot_h
-			y2_val = y - plot_h + ((Ms[i+1] - Mmin) / M_range) * plot_h
-			c.line(x1, y1_val, x2, y2_val)
-		
-		# X軸ラベル
-		c.setStrokeColor(colors.black)
-		c.setFont(font, 8)
-		for i in range(0, int(self.last['L'])+1, int(self.last['L']/6)):
-			x_pos = plot_left + (i / self.last['L']) * plot_width
-			c.line(x_pos, y - plot_h, x_pos, y - plot_h - 5)
-			c.drawCentredString(x_pos, y - plot_h - 15, f'{i:.0f}')
-		c.drawCentredString((plot_left + plot_right) / 2, y - plot_h - 30, '長さ(mm)')
-		c.setFont(font, 8)
-		c.drawString(plot_left - 70, y - plot_h/2, '曲げモーメント(N·mm)')
-		
 		c.save()
 
 	def get_state(self) -> dict:
@@ -8446,6 +8640,16 @@ class VehicleFrameStrengthPanel(wx.Panel):
 			position = self.load_grid.GetCellValue(r, 2)
 			if name or weight or position:
 				load_rows.append((name, weight, position))
+
+		# 面荷重/面支持データを保存（新仕様）
+		dist_rows = []
+		for r in range(self.dist_load_grid.GetNumberRows()):
+			row = []
+			for c in range(self.dist_load_grid.GetNumberCols()):
+				row.append(self.dist_load_grid.GetCellValue(r, c))
+			# 何か入力がある行のみ保存
+			if any(v for v in row):
+				dist_rows.append(row)
 		
 		# セクションデータを保存
 		section_rows = []
@@ -8478,6 +8682,8 @@ class VehicleFrameStrengthPanel(wx.Panel):
 			'factor': self.factor.GetValue(),
 			'load_rows': load_rows,
 			'section_rows': section_rows,
+			'dist_rows': dist_rows,
+			'support_area_alpha': self.support_area_alpha.GetValue() if hasattr(self, 'support_area_alpha') else '0.001',
 		}
 	
 	def set_state(self, state: dict):
@@ -8510,6 +8716,9 @@ class VehicleFrameStrengthPanel(wx.Panel):
 			self.yield_pt.SetValue(state['yield_pt'])
 		if 'factor' in state:
 			self.factor.SetValue(state['factor'])
+		# 面支持剛性係数 α
+		if 'support_area_alpha' in state and hasattr(self, 'support_area_alpha'):
+			self.support_area_alpha.SetValue(str(state['support_area_alpha']))
 		# グリッドのデータを復元
 		if 'load_rows' in state:
 			# 既存の行をクリア
@@ -8522,6 +8731,16 @@ class VehicleFrameStrengthPanel(wx.Panel):
 				self.load_grid.SetCellValue(r, 0, name)
 				self.load_grid.SetCellValue(r, 1, weight)
 				self.load_grid.SetCellValue(r, 2, position)
+		# 面荷重/面支持のデータを復元（新仕様）
+		if 'dist_rows' in state:
+			if self.dist_load_grid.GetNumberRows() > 0:
+				self.dist_load_grid.DeleteRows(0, self.dist_load_grid.GetNumberRows())
+			for row in state['dist_rows']:
+				self.dist_load_grid.AppendRows(1)
+				r = self.dist_load_grid.GetNumberRows() - 1
+				for c, val in enumerate(row):
+					if c < self.dist_load_grid.GetNumberCols():
+						self.dist_load_grid.SetCellValue(r, c, val)
 		# セクションデータを復元
 		if 'section_rows' in state and hasattr(self, 'sections_grid'):
 			if self.sections_grid.GetNumberRows() > 0:
@@ -8979,7 +9198,12 @@ class MainFrame(wx.Frame):
 		self.Close()
 
 def main():
-	app=wx.App(); frame=MainFrame(); frame.Show(); app.MainLoop()
+	# SetTopWindow でトップウィンドウを明示することで、環境依存でイベントループが即終了する問題を防ぐ。
+	app = wx.App(False)
+	frame = MainFrame()
+	app.SetTopWindow(frame)
+	frame.Show()
+	app.MainLoop()
 
 if __name__=='__main__':
 	main()
